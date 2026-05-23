@@ -14,52 +14,18 @@
  */
 
 import { analyzeStock, type AnalyzerResult } from "./stockAnalyzer"
+import {
+  SP500, NASDAQ_100, PREMIUM, ETF_LIST, getCombinedUniverse,
+} from "./stockLists"
 
-// ─── Curated stock universe ──────────────────────────────────────────────────
+// ─── Stock universe (full index constituents) ────────────────────────────────
 
 export const STOCK_UNIVERSE = {
-  // High-conviction mega-caps (~15)
-  premium: [
-    "NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMZN", "TSLA",
-    "AVGO", "NFLX", "TSM", "PLTR", "COST", "LLY", "V", "MA",
-  ],
-  // Broad: S&P 500 + Nasdaq 100 leaders (~130)
-  us: [
-    // ── Tech / Semis (Mag 7 + leaders) ──
-    "NVDA", "MSFT", "AAPL", "GOOGL", "GOOG", "META", "AMZN", "TSLA",
-    "AVGO", "ORCL", "NFLX", "CRM", "ADBE", "AMD", "QCOM", "TXN",
-    "INTC", "MU", "AMAT", "LRCX", "KLAC", "ANET", "CSCO", "IBM",
-    "ASML", "TSM", "ARM", "PANW", "FTNT", "CRWD", "NOW", "DELL",
-    "HPE", "INTU", "MSI", "WDAY", "SNPS", "CDNS", "MRVL", "ON",
-    // ── Financials ──
-    "JPM", "BAC", "WFC", "MS", "GS", "BLK", "V", "MA", "AXP",
-    "SCHW", "COIN", "PYPL", "KKR", "BX",
-    // ── Healthcare ──
-    "LLY", "UNH", "JNJ", "MRK", "ABBV", "PFE", "TMO", "ABT", "DHR",
-    "ISRG", "VRTX", "AMGN", "BMY", "GILD", "MDT", "CVS", "ELV", "REGN",
-    // ── Consumer ──
-    "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "LOW", "TGT", "BKNG",
-    "MAR", "DIS", "CMCSA", "MELI", "ABNB", "LULU", "ORLY",
-    // ── Industrial ──
-    "GE", "CAT", "BA", "HON", "UPS", "LMT", "RTX", "NOC", "MMM",
-    "DE", "EMR", "ETN",
-    // ── Energy ──
-    "XOM", "CVX", "COP", "EOG", "OXY", "SLB", "MPC", "PSX",
-    // ── Utilities / Comms ──
-    "NEE", "DUK", "SO", "T", "VZ", "TMUS",
-    // ── REITs / Materials ──
-    "PLD", "AMT", "EQIX", "O", "SPG", "LIN", "FCX", "NEM",
-    // ── Momentum / Speculative ──
-    "PLTR", "SOFI", "RBLX", "U", "DDOG", "SNOW", "NET", "DOCN",
-    "MELI", "ROKU", "SHOP", "MSTR", "RIOT", "MARA", "ARM",
-    "VST", "CEG", "TLN",
-  ],
-  // ETFs (sector + thematic) (~22)
-  etf: [
-    "SPY", "QQQ", "VOO", "IVV", "VTI", "ARKK", "ARKW", "SOXX",
-    "XLK", "XLE", "XLF", "XLV", "XLI", "XLY", "XLP", "XLU",
-    "GLD", "SLV", "TLT", "USO", "EEM", "VEA",
-  ],
+  premium: PREMIUM,              // 15 mega-caps
+  sp500:   SP500,                // ~500 full S&P 500
+  nasdaq:  NASDAQ_100,           // ~100 Nasdaq 100
+  all:     getCombinedUniverse(),// ~530 S&P500 ∪ Nasdaq100 (deduped)
+  etf:     ETF_LIST,             // ~30 ETFs
 }
 
 export type CategoryKey = keyof typeof STOCK_UNIVERSE
@@ -82,6 +48,8 @@ export interface MarketScanResult {
   // Price
   currentPrice: number
   changePct: number
+  marketCap: string         // formatted: "5.32T" / "850B" / "2.5B"
+  marketCapNum: number      // raw value in USD (for sorting)
 
   // Trade levels
   tp1: number
@@ -99,6 +67,17 @@ export interface MarketScanResult {
   scannedAt: number
 }
 
+// Parse marketCap string ("5.32T" / "850B" / "2.5M") → raw number
+function parseMarketCap(s: string): number {
+  if (!s || s === "N/A") return 0
+  const m = s.match(/^([\d.]+)([TBMK])?/i)
+  if (!m) return 0
+  const num = parseFloat(m[1])
+  const unit = (m[2] || "").toUpperCase()
+  const mult = unit === "T" ? 1e12 : unit === "B" ? 1e9 : unit === "M" ? 1e6 : unit === "K" ? 1e3 : 1
+  return num * mult
+}
+
 function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
   return {
     ticker: r.ticker,
@@ -112,6 +91,8 @@ function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
     scorePct: r.scorePct,
     currentPrice: r.snapshot.currentPrice,
     changePct: r.snapshot.changePct,
+    marketCap: r.snapshot.marketCap || "N/A",
+    marketCapNum: parseMarketCap(r.snapshot.marketCap || ""),
     tp1: r.tradeLevels.tp1,
     accumLow: r.tradeLevels.tradeAccumLow,
     accumHigh: r.tradeLevels.tradeAccumHigh,
@@ -121,6 +102,36 @@ function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
     gauges: r.trendGauges.map(g => ({ timeframe: g.timeframe, score: g.score })),
     scannedAt: Date.now(),
   }
+}
+
+// ─── Sort by signal rank (STRONG BUY → STRONG SELL) ────────────────────────
+
+const SIGNAL_RANK: Record<AnalyzerResult["signal"], number> = {
+  "STRONG BUY":  5,
+  "BUY":         4,
+  "HOLD":        3,
+  "SELL":        2,
+  "STRONG SELL": 1,
+}
+
+const CONFIDENCE_RANK: Record<AnalyzerResult["confidence"], number> = {
+  HIGH: 3, MEDIUM: 2, LOW: 1,
+}
+
+export function sortByConviction(results: MarketScanResult[]): MarketScanResult[] {
+  return [...results].sort((a, b) => {
+    // 1. Signal rank (BUY > SELL)
+    const sigDiff = SIGNAL_RANK[b.signal] - SIGNAL_RANK[a.signal]
+    if (sigDiff !== 0) return sigDiff
+    // 2. Score % within same signal
+    const scoreDiff = b.scorePct - a.scorePct
+    if (Math.abs(scoreDiff) > 3) return scoreDiff
+    // 3. Confidence (HIGH first)
+    const confDiff = CONFIDENCE_RANK[b.confidence] - CONFIDENCE_RANK[a.confidence]
+    if (confDiff !== 0) return confDiff
+    // 4. Market cap (larger first — more liquid)
+    return b.marketCapNum - a.marketCapNum
+  })
 }
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
@@ -186,17 +197,11 @@ export async function scanMarket(
     }
   }
 
-  // Sort by score (descending — best first)
-  // Tiebreaker: confidence HIGH > MEDIUM > LOW
-  const confidenceRank = { HIGH: 3, MEDIUM: 2, LOW: 1 }
-  results.sort((a, b) => {
-    const scoreDiff = b.scorePct - a.scorePct
-    if (Math.abs(scoreDiff) > 2) return scoreDiff
-    return confidenceRank[b.confidence] - confidenceRank[a.confidence]
-  })
+  // Sort by signal conviction (STRONG BUY → STRONG SELL)
+  const sorted = sortByConviction(results)
 
-  cache.set(getCacheKey(category), { results, timestamp: Date.now() })
-  return results
+  cache.set(getCacheKey(category), { results: sorted, timestamp: Date.now() })
+  return sorted
 }
 
 // ─── Market Indices Quick Quote ──────────────────────────────────────────────

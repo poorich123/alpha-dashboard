@@ -20,9 +20,11 @@ import { formatDistanceToNow } from "date-fns"
 import toast from "react-hot-toast"
 
 const CATEGORIES: { key: CategoryKey; label: string; emoji: string; description: string }[] = [
-  { key: "premium", label: "Premium",   emoji: "💎", description: "Mega-cap leaders · ~15 stocks" },
-  { key: "us",      label: "US Stocks", emoji: "🇺🇸", description: "S&P 500 + Nasdaq 100 · ~130 stocks" },
-  { key: "etf",     label: "ETF",       emoji: "📊", description: "Sector + Thematic · ~22 funds" },
+  { key: "premium", label: "Premium",   emoji: "💎", description: "Mega-cap leaders · ~15 stocks · ~30s" },
+  { key: "nasdaq",  label: "Nasdaq 100", emoji: "🔷", description: "Nasdaq-100 · 100 stocks · ~3 min" },
+  { key: "sp500",   label: "S&P 500",   emoji: "🇺🇸", description: "Full S&P 500 · 500 stocks · ~12 min" },
+  { key: "all",     label: "Combined",  emoji: "🌐", description: "S&P 500 ∪ Nasdaq 100 · ~530 stocks · ~13 min" },
+  { key: "etf",     label: "ETF",       emoji: "📊", description: "Sector + Thematic · ~30 funds · ~1 min" },
 ]
 
 const PAGE_SIZE = 10
@@ -229,8 +231,15 @@ export default function MarketPage() {
         <div className="flex items-center gap-2">
           <TrendingUp className="w-4 h-4 text-emerald-400" />
           <h2 className="text-base font-bold text-white">
-            {CATEGORIES.find(c => c.key === category)?.label} — ranked by Alpha Score
+            {CATEGORIES.find(c => c.key === category)?.label}
           </h2>
+          <span className="text-xs text-gray-500">
+            sorted: <span className="text-emerald-400">STRONG BUY</span> →{" "}
+            <span className="text-green-400">BUY</span> →{" "}
+            <span className="text-yellow-400">HOLD</span> →{" "}
+            <span className="text-orange-400">SELL</span> →{" "}
+            <span className="text-red-400">STRONG SELL</span>
+          </span>
         </div>
         <span className="text-[10px] text-gray-600">
           Page {page} of {totalPages} · Showing {pageStocks.length} of {filtered.length}

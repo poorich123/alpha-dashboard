@@ -42,6 +42,7 @@ export function StockTable({ stocks, loading }: Props) {
             <tr className="text-[10px] text-gray-500 uppercase tracking-wider">
               <th className="text-left py-3 pl-4 pr-2">#</th>
               <th className="text-left py-3 px-2">Ticker</th>
+              <th className="text-right py-3 px-2">MCap</th>
               <th className="text-left py-3 px-2">Trend</th>
               <th className="text-center py-3 px-2">Signal</th>
               <th className="text-center py-3 px-2">Conf</th>
@@ -98,6 +99,19 @@ function StockRow({ stock: s, rank }: { stock: MarketScanResult; rank: number })
             <div className="text-[10px] text-gray-500 truncate max-w-[120px]">{s.companyName}</div>
           </div>
         </Link>
+      </td>
+
+      {/* Market Cap */}
+      <td className="py-3 px-2 text-right">
+        <span className={cn(
+          "text-xs font-mono font-medium",
+          s.marketCapNum >= 1e12 ? "text-cyan-300"
+          : s.marketCapNum >= 1e11 ? "text-cyan-400"
+          : s.marketCapNum >= 1e10 ? "text-gray-300"
+          : "text-gray-500"
+        )}>
+          {s.marketCap}
+        </span>
       </td>
 
       {/* Trend Sparkline */}
