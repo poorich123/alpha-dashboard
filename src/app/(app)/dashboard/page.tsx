@@ -228,43 +228,6 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* Market Pulse */}
-      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-4 mb-6">
-        <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">Market Pulse</div>
-        <div className="flex flex-wrap gap-6">
-          {spy && (
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-sm">S&P 500</span>
-              <span className="text-white font-medium">{spy.c.toFixed(2)}</span>
-              <PercentBadge value={spy.dp} />
-            </div>
-          )}
-          {qqq && (
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-sm">Nasdaq 100</span>
-              <span className="text-white font-medium">{qqq.c.toFixed(2)}</span>
-              <PercentBadge value={qqq.dp} />
-            </div>
-          )}
-          {vix && (
-            <div className="flex items-center gap-2">
-              <span className="text-gray-400 text-sm">VIX</span>
-              <span className={`font-medium ${vixColor}`}>{vix.c.toFixed(2)}</span>
-              <span className="text-xs text-gray-500">{vixLevel < 15 ? "Low Fear" : vixLevel < 25 ? "Moderate" : "High Fear"}</span>
-            </div>
-          )}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 text-sm">USD/THB</span>
-            <span className="text-yellow-400 font-medium">{usdThbRate.toFixed(2)}</span>
-          </div>
-          {lastUpdated && (
-            <div className="ml-auto text-xs text-gray-600" suppressHydrationWarning>
-              Updated {format(lastUpdated, "HH:mm:ss")}
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Portfolio Heatmap */}
         <div className="lg:col-span-2 bg-[#0C1628] border border-[#1A2E52] rounded-xl p-4">
