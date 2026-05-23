@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell($env:PATH = [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"Machine\"\\) + \";\" + [System.Environment]::GetEnvironmentVariable\\(\"PATH\", \"User\"\\); cd \"C:\\\\Users\\\\sauen\\\\OneDrive\\\\เอกสาร\\\\investing\"; npm run build 2>&1 | Select-Object -Last 60)"
+    ]
+  }
+}
