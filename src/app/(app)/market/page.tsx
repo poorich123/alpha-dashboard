@@ -11,6 +11,7 @@ import {
   type CategoryKey,
   type IndexQuote,
 } from "@/lib/marketOverview"
+import { SECTOR_GROUPS, getSectorsForTicker } from "@/lib/stockLists"
 import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { IndicesBar } from "@/components/market/IndicesBar"
@@ -30,6 +31,7 @@ const CATEGORIES: { key: CategoryKey; label: string; emoji: string; description:
 const PAGE_SIZE = 10
 
 type FilterKey = "all" | "buy" | "strong_buy" | "high_conf"
+type TechFilterKey = "none" | "near_support" | "broke_resistance" | "rsi_high" | "rsi_low" | "above_ema50" | "below_ema50"
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: "all",        label: "All",         emoji: "🌐" },
@@ -38,9 +40,39 @@ const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: "high_conf",  label: "HIGH Conf",   emoji: "🔥" },
 ]
 
+const TECH_FILTERS: { key: TechFilterKey; label: string }[] = [
+  { key: "none",             label: "—" },
+  { key: "near_support",     label: "ใกล้แนวรับ" },
+  { key: "broke_resistance", label: "ทะลุแนวต้าน" },
+  { key: "rsi_high",         label: "RSI > 70" },
+  { key: "rsi_low",          label: "RSI < 30" },
+  { key: "above_ema50",      label: "เหนือ EMA50" },
+  { key: "below_ema50",      label: "ใต้ EMA50" },
+]
+
+// Helper: count how many stocks match a tech filter
+function countTechMatches(stocks: MarketScanResult[], key: TechFilterKey): number {
+  if (key === "none") return stocks.length
+  return stocks.filter(s => matchTechFilter(s, key)).length
+}
+
+function matchTechFilter(s: MarketScanResult, key: TechFilterKey): boolean {
+  switch (key) {
+    case "near_support":     return s.support1 > 0 && (s.currentPrice - s.support1) / s.currentPrice < 0.03
+    case "broke_resistance": return s.currentPrice > s.resistance1
+    case "rsi_high":         return s.rsi > 70
+    case "rsi_low":          return s.rsi < 30
+    case "above_ema50":      return s.aboveEma50
+    case "below_ema50":      return !s.aboveEma50
+    case "none":             return true
+  }
+}
+
 export default function MarketPage() {
   const [category, setCategory] = useState<CategoryKey>("premium")
   const [filter, setFilter] = useState<FilterKey>("all")
+  const [sectorKey, setSectorKey] = useState<string>("all")        // sector group
+  const [techFilter, setTechFilter] = useState<TechFilterKey>("none")
   const [page, setPage] = useState(1)
   const [stocks, setStocks] = useState<MarketScanResult[]>([])
   const [indices, setIndices] = useState<IndexQuote[]>([])
@@ -109,19 +141,49 @@ export default function MarketPage() {
     handleScan(cat)
   }
 
-  // Reset to page 1 when filter changes
-  useEffect(() => { setPage(1) }, [filter])
+  // Reset to page 1 when any filter changes
+  useEffect(() => { setPage(1) }, [filter, sectorKey, techFilter])
 
   const progressPct = progress.total > 0 ? (progress.done / progress.total) * 100 : 0
 
-  // Apply signal filter
+  // Apply all filters (sector → signal → tech)
   const filtered = useMemo(() => {
-    if (filter === "all") return stocks
-    if (filter === "buy") return stocks.filter(s => s.signal === "BUY" || s.signal === "STRONG BUY")
-    if (filter === "strong_buy") return stocks.filter(s => s.signal === "STRONG BUY")
-    if (filter === "high_conf") return stocks.filter(s => s.confidence === "HIGH")
-    return stocks
-  }, [stocks, filter])
+    let arr = stocks
+
+    // 1. Sector filter
+    if (sectorKey !== "all" && SECTOR_GROUPS[sectorKey]) {
+      const allowed = new Set(SECTOR_GROUPS[sectorKey].tickers)
+      arr = arr.filter(s => allowed.has(s.ticker))
+    }
+
+    // 2. Signal filter
+    if (filter === "buy")        arr = arr.filter(s => s.signal === "BUY" || s.signal === "STRONG BUY")
+    else if (filter === "strong_buy") arr = arr.filter(s => s.signal === "STRONG BUY")
+    else if (filter === "high_conf")  arr = arr.filter(s => s.confidence === "HIGH")
+
+    // 3. Technical filter
+    if (techFilter !== "none") {
+      arr = arr.filter(s => matchTechFilter(s, techFilter))
+    }
+
+    return arr
+  }, [stocks, filter, sectorKey, techFilter])
+
+  // Tech filter counts (computed from stocks after sector + signal filter, before tech filter)
+  const techCounts = useMemo(() => {
+    let baseArr = stocks
+    if (sectorKey !== "all" && SECTOR_GROUPS[sectorKey]) {
+      const allowed = new Set(SECTOR_GROUPS[sectorKey].tickers)
+      baseArr = baseArr.filter(s => allowed.has(s.ticker))
+    }
+    if (filter === "buy")        baseArr = baseArr.filter(s => s.signal === "BUY" || s.signal === "STRONG BUY")
+    else if (filter === "strong_buy") baseArr = baseArr.filter(s => s.signal === "STRONG BUY")
+    else if (filter === "high_conf")  baseArr = baseArr.filter(s => s.confidence === "HIGH")
+
+    return Object.fromEntries(
+      TECH_FILTERS.map(t => [t.key, countTechMatches(baseArr, t.key)])
+    ) as Record<TechFilterKey, number>
+  }, [stocks, filter, sectorKey])
 
   // Paginate
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
@@ -202,10 +264,41 @@ export default function MarketPage() {
         </div>
       )}
 
-      {/* ── Filter Bar ────────────────────────────────────────────── */}
-      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-2 mb-3 flex items-center gap-2 hsr-card">
+      {/* ── Sector Tabs (Rocket Tool style) ──────────────────────── */}
+      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-2 mb-2 hsr-card">
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            onClick={() => setSectorKey("all")}
+            className={cn(
+              "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+              sectorKey === "all"
+                ? "bg-[#00C2D4]/15 text-[#00D8EE] border border-[#00C2D4]/40"
+                : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
+            )}
+          >
+            🌐 ทั้งหมด
+          </button>
+          {Object.entries(SECTOR_GROUPS).map(([key, group]) => (
+            <button
+              key={key}
+              onClick={() => setSectorKey(key)}
+              className={cn(
+                "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                sectorKey === key
+                  ? "bg-[#00C2D4]/15 text-[#00D8EE] border border-[#00C2D4]/40"
+                  : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
+              )}
+            >
+              {group.emoji} {group.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Filter Bar — Signal (Rocket Tool style) ──────────────── */}
+      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-2 mb-2 flex items-center gap-2 hsr-card flex-wrap">
         <span className="text-[10px] text-gray-500 uppercase tracking-wider px-2 flex items-center gap-1">
-          <Filter className="w-3 h-3" /> Filter
+          <Filter className="w-3 h-3" /> Signal
         </span>
         {FILTERS.map((f) => (
           <button
@@ -224,6 +317,45 @@ export default function MarketPage() {
         <span className="ml-auto text-[10px] text-gray-600 pr-2">
           {filtered.length} matching · {stocks.length} scanned
         </span>
+      </div>
+
+      {/* ── Technical Filter — with counts (Rocket Tool style) ────── */}
+      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-2 mb-3 flex items-center gap-2 hsr-card flex-wrap">
+        <span className="text-[10px] text-gray-500 uppercase tracking-wider px-2">
+          ตัวกรอง
+        </span>
+        {TECH_FILTERS.filter(t => t.key !== "none").map((t) => {
+          const count = techCounts[t.key] || 0
+          const isActive = techFilter === t.key
+          return (
+            <button
+              key={t.key}
+              onClick={() => setTechFilter(isActive ? "none" : t.key)}
+              disabled={count === 0 && !isActive}
+              className={cn(
+                "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                isActive
+                  ? "bg-purple-500/15 text-purple-300 border border-purple-500/40"
+                  : count > 0
+                  ? "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent"
+                  : "text-gray-700 border border-transparent cursor-not-allowed",
+              )}
+            >
+              {t.label} <span className={cn(
+                "ml-1 text-[10px]",
+                isActive ? "text-purple-400" : "text-gray-600"
+              )}>({count})</span>
+            </button>
+          )
+        })}
+        {techFilter !== "none" && (
+          <button
+            onClick={() => setTechFilter("none")}
+            className="text-[10px] text-cyan-400 hover:text-cyan-200 ml-auto"
+          >
+            Clear tech filter ×
+          </button>
+        )}
       </div>
 
       {/* ── Section title ─────────────────────────────────────────── */}

@@ -152,3 +152,113 @@ export const ETF_LIST: string[] = [
   // International
   "EEM", "VEA", "FXI", "INDA", "EWJ",
 ]
+
+// ─── Sector / Thematic Groups (Rocket Tool style) ────────────────────────────
+// แต่ละ ticker อาจอยู่ในหลาย group ได้
+
+export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; tickers: string[] }> = {
+  mag7: {
+    label: "Mag 7",
+    emoji: "🚀",
+    tickers: ["NVDA", "MSFT", "AAPL", "GOOGL", "GOOG", "META", "AMZN", "TSLA"],
+  },
+  semis: {
+    label: "Semiconductor",
+    emoji: "🔌",
+    tickers: [
+      "NVDA", "AMD", "AVGO", "QCOM", "TXN", "AMAT", "LRCX", "KLAC", "MU",
+      "INTC", "ASML", "TSM", "ARM", "ON", "MRVL", "MCHP", "QRVO", "TER",
+      "NXPI", "GFS", "MPWR", "SWKS", "ADI", "ENPH",
+    ],
+  },
+  software: {
+    label: "Software",
+    emoji: "💻",
+    tickers: [
+      "MSFT", "ORCL", "CRM", "ADBE", "NOW", "INTU", "SNPS", "CDNS", "WDAY",
+      "PANW", "CRWD", "FTNT", "DDOG", "SNOW", "MDB", "NET", "PTC", "ANSS",
+      "TYL", "ROP", "FICO", "GDDY", "MSCI", "CPAY", "FI", "GEN",
+    ],
+  },
+  datacenter: {
+    label: "Data Center",
+    emoji: "🏢",
+    tickers: [
+      "DLR", "EQIX", "AMT", "VST", "CEG", "TLN", "NEE", "DUK", "GEV",
+      "ETR", "AEP", "EXC", "ED", "SO", "XEL", "SRE", "D", "AES",
+    ],
+  },
+  defense: {
+    label: "Defense / Aerospace",
+    emoji: "🛡️",
+    tickers: [
+      "LMT", "RTX", "NOC", "GD", "HII", "LDOS", "TDG", "AXON", "PLTR",
+      "BA", "GE", "TXT", "HWM", "LHX",
+    ],
+  },
+  space: {
+    label: "Space / Aviation",
+    emoji: "🚁",
+    tickers: ["BA", "LMT", "NOC", "RTX", "GD", "TDG", "HWM", "AXON", "GEV"],
+  },
+  pharma: {
+    label: "Pharma / Biotech",
+    emoji: "💊",
+    tickers: [
+      "LLY", "MRK", "PFE", "ABBV", "AMGN", "BMY", "GILD", "VRTX", "REGN",
+      "BIIB", "MRNA", "ISRG", "TMO", "DHR", "ABT", "JNJ", "ZTS", "IDXX",
+      "INCY", "ARGX", "DXCM", "RPRX",
+    ],
+  },
+  energy: {
+    label: "Energy",
+    emoji: "⚡",
+    tickers: [
+      "XOM", "CVX", "COP", "EOG", "OXY", "SLB", "MPC", "PSX", "BKR",
+      "HAL", "FANG", "VLO", "WMB", "OKE", "KMI", "DVN", "TRGP", "HES",
+      "APA", "CTRA", "MRO",
+    ],
+  },
+  finance: {
+    label: "Banks / Finance",
+    emoji: "🏦",
+    tickers: [
+      "JPM", "BAC", "WFC", "MS", "GS", "C", "USB", "PNC", "TFC", "SCHW",
+      "BLK", "AXP", "V", "MA", "BX", "KKR", "COF", "MET", "PRU", "AFL",
+      "ALL", "TRV", "CB", "MMC", "AON", "PYPL", "COIN", "SPGI", "ICE",
+      "NDAQ", "CME", "MCO",
+    ],
+  },
+  dividend: {
+    label: "Dividend / REIT",
+    emoji: "💰",
+    tickers: [
+      "O", "PLD", "AMT", "EQIX", "WELL", "SPG", "VICI", "DLR", "PSA",
+      "AVB", "EQR", "ARE", "INVH", "EXR", "VTR", "ESS", "MAA", "UDR",
+      "JNJ", "PG", "KO", "PEP", "MO", "PM", "T", "VZ", "TMUS",
+    ],
+  },
+  consumer: {
+    label: "Consumer",
+    emoji: "🛒",
+    tickers: [
+      "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "LOW", "TGT", "BKNG",
+      "MAR", "DIS", "CMCSA", "MELI", "ABNB", "LULU", "ORLY", "PG", "KO",
+      "PEP", "MDLZ", "KHC", "MNST", "EL", "CL", "KMB",
+    ],
+  },
+  crypto: {
+    label: "Crypto-Related",
+    emoji: "₿",
+    tickers: ["COIN", "MSTR", "RIOT", "MARA", "CLSK", "HUT", "BITF"],
+  },
+}
+
+// Reverse map: ticker → sectors[]
+export function getSectorsForTicker(ticker: string): string[] {
+  const result: string[] = []
+  for (const [key, group] of Object.entries(SECTOR_GROUPS)) {
+    if (group.tickers.includes(ticker.toUpperCase())) result.push(key)
+  }
+  return result
+}

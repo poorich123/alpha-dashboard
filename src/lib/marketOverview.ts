@@ -58,6 +58,13 @@ export interface MarketScanResult {
   sl: number
   riskReward: number
 
+  // Technical state (for filters)
+  rsi: number              // 0-100
+  support1: number         // nearest support below current price
+  resistance1: number      // nearest resistance above current price
+  aboveEma50: boolean
+  aboveEma200: boolean
+
   // Trend for sparkline (last 30 closes)
   trend30d: number[]
 
@@ -79,6 +86,10 @@ function parseMarketCap(s: string): number {
 }
 
 function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
+  // Extract RSI value from thesis check
+  const rsiCheck = r.thesis.find(t => t.id === "rsi")
+  const rsi = rsiCheck ? parseFloat(rsiCheck.value) || 50 : 50
+
   return {
     ticker: r.ticker,
     companyName: r.companyName,
@@ -98,6 +109,11 @@ function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
     accumHigh: r.tradeLevels.tradeAccumHigh,
     sl: r.tradeLevels.sl,
     riskReward: r.tradeLevels.riskReward,
+    rsi,
+    support1:     r.tradeLevels.tradeAccumLow,   // proxy: accum zone low = support
+    resistance1:  r.tradeLevels.tp1,             // proxy: TP1 = nearest resistance
+    aboveEma50:   r.snapshot.currentPrice > r.snapshot.sma50,
+    aboveEma200:  r.snapshot.currentPrice > r.snapshot.sma200,
     trend30d: r.candles.c.slice(-30),
     gauges: r.trendGauges.map(g => ({ timeframe: g.timeframe, score: g.score })),
     scannedAt: Date.now(),

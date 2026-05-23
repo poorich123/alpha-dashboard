@@ -45,12 +45,12 @@ export function StockTable({ stocks, loading }: Props) {
               <th className="text-right py-3 px-2">MCap</th>
               <th className="text-left py-3 px-2">Trend</th>
               <th className="text-center py-3 px-2">Signal</th>
-              <th className="text-center py-3 px-2">Conf</th>
               <th className="text-center py-3 px-2">Score</th>
+              <th className="text-center py-3 px-2">RSI</th>
               <th className="text-right py-3 px-2">Price</th>
               <th className="text-right py-3 px-2">Change</th>
-              <th className="text-right py-3 px-2">TP1</th>
-              <th className="text-right py-3 px-2">Accum Zone</th>
+              <th className="text-right py-3 px-2">Support</th>
+              <th className="text-right py-3 px-2">Resist (TP1)</th>
               <th className="text-center py-3 px-3 pr-4">Momentum</th>
             </tr>
           </thead>
@@ -119,28 +119,39 @@ function StockRow({ stock: s, rank }: { stock: MarketScanResult; rank: number })
         <Sparkline data={s.trend30d} width={80} height={32} />
       </td>
 
-      {/* Signal */}
+      {/* Signal + Confidence stacked */}
       <td className="py-3 px-2 text-center">
-        <span className={cn("text-[10px] font-bold px-2 py-1 rounded border", sigCol)}>
-          {s.signal}
-        </span>
-      </td>
-
-      {/* Confidence */}
-      <td className={cn("py-3 px-2 text-center text-xs font-semibold", confCol)}>
-        {s.confidence}
+        <div className="flex flex-col items-center gap-1">
+          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded border", sigCol)}>
+            {s.signal}
+          </span>
+          <span className={cn("text-[9px] font-semibold", confCol)}>{s.confidence}</span>
+        </div>
       </td>
 
       {/* Score */}
       <td className="py-3 px-2 text-center">
-        <div className="flex items-center gap-1.5 justify-center">
+        <div className="flex items-center gap-1 justify-center">
           {Array(s.scoreMax).fill(0).map((_, i) => (
             <div key={i}
               className={cn("w-1.5 h-1.5 rounded-full", i < s.score ? "bg-emerald-400" : "bg-gray-700")}
             />
           ))}
-          <span className="text-[10px] text-gray-500 ml-1">{s.score}/{s.scoreMax}</span>
         </div>
+        <div className="text-[9px] text-gray-500 text-center mt-0.5">{s.score}/{s.scoreMax}</div>
+      </td>
+
+      {/* RSI */}
+      <td className="py-3 px-2 text-center">
+        <span className={cn(
+          "text-xs font-mono font-bold px-2 py-0.5 rounded border",
+          s.rsi > 70 ? "text-red-400 bg-red-500/10 border-red-500/30"   // overbought
+          : s.rsi < 30 ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"  // oversold (buy opportunity)
+          : s.rsi >= 50 ? "text-cyan-300 bg-cyan-500/10 border-cyan-500/20"
+          : "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+        )}>
+          {s.rsi.toFixed(0)}
+        </span>
       </td>
 
       {/* Price */}
@@ -154,12 +165,20 @@ function StockRow({ stock: s, rank }: { stock: MarketScanResult; rank: number })
         </div>
       </td>
 
-      {/* TP1 */}
-      <td className="py-3 px-2 text-right text-emerald-400 font-mono text-xs">${s.tp1.toFixed(2)}</td>
+      {/* Support */}
+      <td className="py-3 px-2 text-right">
+        <div className="text-pink-400 font-mono text-xs">${s.support1.toFixed(2)}</div>
+        <div className="text-[9px] text-gray-600 mt-0.5">
+          {((s.currentPrice - s.support1) / s.currentPrice * 100).toFixed(1)}% above
+        </div>
+      </td>
 
-      {/* Accumulation Zone */}
-      <td className="py-3 px-2 text-right text-pink-400 font-mono text-xs">
-        ${s.accumLow.toFixed(2)}–{s.accumHigh.toFixed(2)}
+      {/* Resistance (= TP1) */}
+      <td className="py-3 px-2 text-right">
+        <div className="text-emerald-400 font-mono text-xs">${s.resistance1.toFixed(2)}</div>
+        <div className="text-[9px] text-gray-600 mt-0.5">
+          +{((s.resistance1 - s.currentPrice) / s.currentPrice * 100).toFixed(1)}%
+        </div>
       </td>
 
       {/* Momentum bars */}
