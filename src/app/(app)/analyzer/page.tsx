@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Search, ScanLine, Sparkles, AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -21,7 +21,16 @@ import { format } from "date-fns"
 
 const POPULAR_TICKERS = ["NVDA", "TSLA", "AAPL", "MSFT", "GOOGL", "META", "AMD", "PLTR"]
 
+// Wrap in Suspense for useSearchParams (required by Next.js 16 prerender)
 export default function AnalyzerPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-500">Loading…</div>}>
+      <AnalyzerPageInner />
+    </Suspense>
+  )
+}
+
+function AnalyzerPageInner() {
   const [ticker, setTicker] = useState("")
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzerResult | null>(null)
