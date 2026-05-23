@@ -20,6 +20,7 @@ import {
   Globe,
   Shield,
   LogOut,
+  Sparkles,
 } from "lucide-react"
 import { getSupabaseBrowser, hasSupabaseConfigured } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -29,6 +30,7 @@ import { getRoundIcon, PAGE_CHARACTERS } from "@/components/hsr/characters"
 
 const navItems = [
   { href: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { href: "/market", icon: Sparkles, label: "Market", highlight: true },
   { href: "/analyzer", icon: ScanLine, label: "Analyzer", highlight: true },
   { href: "/macro", icon: Globe, label: "Macro Risk", highlight: true },
   { href: "/portfolio", icon: Briefcase, label: "Portfolio" },
