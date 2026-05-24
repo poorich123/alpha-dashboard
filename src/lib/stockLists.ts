@@ -1,34 +1,21 @@
 /**
- * Stock Lists — S&P 500 + Nasdaq 100 constituents
- * ───────────────────────────────────────────────
- * Static lists derived from public Wikipedia sources.
- * Updated: 2024-Q4 / 2025-Q1.
- *
- * Note: index constituents change quarterly. Refresh if needed.
+ * Stock Lists — รายการหุ้นแยกตามตลาด + sector
+ * ─────────────────────────────────────────────
+ * Source: curated from Rocket Scanner sector references (Nov 2026)
+ * Categories: S&P 500, ETF, NYSE (non-S&P), Speculative/Momentum
  */
 
-// ─── Nasdaq 100 (top 100 non-financial on Nasdaq, by market cap) ─────────────
-
+// ─── Nasdaq 100 (kept for backward compat — not exposed in UI) ───────────────
 export const NASDAQ_100: string[] = [
-  // Mag 7 + Tech leaders
   "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "GOOG", "META", "TSLA",
-  // Big Tech
   "AVGO", "ORCL", "NFLX", "ADBE", "CSCO", "AMD", "INTC", "QCOM",
   "TXN", "INTU", "AMAT", "MU", "ASML", "ARM", "LRCX", "KLAC",
   "MRVL", "ANET", "PANW", "CRWD", "FTNT", "ADSK", "SNPS", "CDNS",
-  "ADP", "PAYX", "FAST", "CTAS",
-  // Consumer
-  "COST", "PEP", "MDLZ", "KDP", "MNST", "KHC", "SBUX", "MAR",
-  "BKNG", "ABNB", "MELI", "PDD", "ORLY", "ROST", "LULU", "DLTR",
-  // Healthcare
-  "AMGN", "ISRG", "GILD", "VRTX", "REGN", "IDXX",
-  // Communications / Media
-  "CMCSA", "TMUS", "WBD", "TTD",
-  // Industrials
-  "HON", "CSX", "PCAR", "ODFL", "VRSK", "ROP",
-  // Utilities / Energy
-  "AEP", "EXC", "XEL", "DLR", "EQIX",
-  // Auto / Misc
+  "ADP", "PAYX", "FAST", "CTAS", "COST", "PEP", "MDLZ", "KDP",
+  "MNST", "KHC", "SBUX", "MAR", "BKNG", "ABNB", "MELI", "PDD",
+  "ORLY", "ROST", "LULU", "DLTR", "AMGN", "ISRG", "GILD", "VRTX",
+  "REGN", "IDXX", "CMCSA", "TMUS", "WBD", "TTD", "HON", "CSX",
+  "PCAR", "ODFL", "VRSK", "ROP", "AEP", "EXC", "XEL", "DLR", "EQIX",
   "DDOG", "ZS", "SHOP", "GFS", "MRNA", "DXCM", "BIIB", "CHTR",
   "WDAY", "TEAM", "CTSH", "CCEP", "BKR", "ROK", "ON", "CSGP",
   "WBA", "FANG", "GEHC", "MCHP", "AZN", "DASH", "TTWO", "ANSS",
@@ -36,15 +23,13 @@ export const NASDAQ_100: string[] = [
 ]
 
 // ─── S&P 500 — full list (alphabetical) ──────────────────────────────────────
-
 export const SP500: string[] = [
   // A
   "A", "AAPL", "ABBV", "ABNB", "ABT", "ACGL", "ACN", "ADBE", "ADI", "ADM",
   "ADP", "ADSK", "AEE", "AEP", "AES", "AFL", "AIG", "AIZ", "AJG", "AKAM",
   "ALB", "ALGN", "ALL", "ALLE", "AMAT", "AMCR", "AMD", "AME", "AMGN", "AMP",
   "AMT", "AMZN", "ANET", "ANSS", "AON", "AOS", "APA", "APD", "APH", "APO",
-  "APTV", "ARE", "ARM", "ATO", "AVB", "AVGO", "AVY", "AWK", "AXON", "AXP",
-  "AZO",
+  "APTV", "ARE", "ARM", "ATO", "AVB", "AVGO", "AVY", "AWK", "AXON", "AXP", "AZO",
   // B
   "BA", "BAC", "BALL", "BAX", "BBY", "BDX", "BEN", "BF.B", "BG", "BIIB",
   "BIO", "BK", "BKNG", "BKR", "BLDR", "BLK", "BMY", "BR", "BRK.B", "BRO",
@@ -97,8 +82,7 @@ export const SP500: string[] = [
   // P
   "PANW", "PARA", "PAYC", "PAYX", "PCAR", "PCG", "PEG", "PEP", "PFE", "PFG",
   "PG", "PGR", "PH", "PHM", "PKG", "PLD", "PLTR", "PM", "PNC", "PNR",
-  "PNW", "PODD", "POOL", "PPG", "PPL", "PRU", "PSA", "PSX", "PTC", "PWR",
-  "PYPL",
+  "PNW", "PODD", "POOL", "PPG", "PPL", "PRU", "PSA", "PSX", "PTC", "PWR", "PYPL",
   // Q
   "QCOM", "QRVO",
   // R
@@ -124,37 +108,83 @@ export const SP500: string[] = [
   "XEL", "XOM", "XYL", "YUM", "ZBH", "ZBRA", "ZTS",
 ]
 
-// ─── Helper: combined deduped universe ───────────────────────────────────────
-
 export function getCombinedUniverse(): string[] {
-  const set = new Set<string>([...SP500, ...NASDAQ_100])
-  return Array.from(set).sort()
+  return Array.from(new Set([...SP500, ...NASDAQ_100])).sort()
 }
 
-// ─── Premium subset (curated top ~15) ────────────────────────────────────────
+// Backward compat (not exposed in UI anymore)
+export const PREMIUM: string[] = SP500.slice(0, 15)
 
-export const PREMIUM: string[] = [
-  "NVDA", "MSFT", "AAPL", "GOOGL", "META", "AMZN", "TSLA",
-  "AVGO", "NFLX", "TSM", "PLTR", "COST", "LLY", "V", "MA",
-]
-
-// ─── ETF universe ────────────────────────────────────────────────────────────
-
+// ─── ETF universe (~35) ──────────────────────────────────────────────────────
 export const ETF_LIST: string[] = [
   // Broad market
   "SPY", "QQQ", "VOO", "IVV", "VTI", "VOOG", "VUG",
-  // Sector (XLx)
+  // Sector
   "XLK", "XLE", "XLF", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLC", "XLRE",
-  // Thematic
-  "ARKK", "ARKW", "SOXX", "SMH", "IBIT", "FBTC",
+  // Semiconductor / Thematic
+  "SOXX", "SMH", "ARKK", "ARKW", "IBIT", "FBTC",
   // Bonds / Commodities
   "GLD", "SLV", "TLT", "USO", "UNG", "DBA",
-  // International
-  "EEM", "VEA", "FXI", "INDA", "EWJ",
+  // International / Income
+  "EEM", "VEA", "FXI", "INDA", "EWJ", "SCHD", "JEPI", "JEPQ", "QYLD", "QQQI",
+  // Mag 7 ETF
+  "MAGS",
 ]
 
-// ─── Sector / Thematic Groups (Rocket Tool style) ────────────────────────────
-// แต่ละ ticker อาจอยู่ในหลาย group ได้
+// ─── NYSE — international ADRs + non-S&P 500 names (~40) ─────────────────────
+// เน้น ADRs และหุ้นนอก S&P 500 ที่มี volume สูง · ตัดตัวเล็กเกินไป
+export const NYSE_INTERESTING: string[] = [
+  // China ADRs (NYSE)
+  "BABA", "JD", "BIDU", "NIO", "XPEV", "LI", "BILI", "ZTO", "BEKE", "TME",
+  "FUTU", "TIGR", "EDU", "TAL", "VIPS",
+  // Latin America
+  "ITUB", "NU", "BBD", "VALE", "PBR", "EC", "ABEV",
+  // Japan/Korea
+  "TM", "SONY", "HMC", "MUFG", "SMFG", "KEP",
+  // Materials / Mining (Australian + others)
+  "RIO", "BHP", "GOLD", "AEM", "KGC", "FNV", "WPM", "AU",
+  // Other interesting NYSE
+  "NOK", "BB", "FLY", "CRWV", "NBIS", "RKLB", "GLOB", "DESP", "GRAB",
+]
+
+// ─── Speculative / Momentum (NASDAQ Composite small-mid cap) ─────────────────
+// ~60 ตัว · เน้นกระแส momentum · ไม่ใช่ pump-and-dump
+export const SPECULATIVE_MOMENTUM: string[] = [
+  // AI / Quantum (hottest)
+  "IONQ", "RGTI", "QBTS", "QUBT", "SOUN", "BBAI", "AI", "TEM", "APP",
+  // Tech infra / Data center
+  "NBIS", "CRWV", "IREN", "APLD", "MSTR", "VRT",
+  // Defense / Space
+  "RKLB", "ASTS", "ACHR", "JOBY", "LUNR", "VOYG", "KTOS", "ONDS", "RCAT",
+  "AVAV", "AMPX", "BWXT", "SATS", "FLY",
+  // Nuclear / Clean Energy
+  "OKLO", "NNE", "SMR", "UEC", "NXE", "UUUU",
+  // EV / Auto
+  "RIVN", "LCID", "NIO", "XPEV",
+  // Fintech / Consumer momentum
+  "SOFI", "HOOD", "HIMS", "AFRM", "OSCR",
+  // Bio momentum
+  "VKTX", "RXRX", "AKRO", "SMMT",
+  // Crypto miners
+  "MARA", "RIOT", "CLSK", "HUT", "BITF",
+  // Tech small-mid + materials
+  "POET", "EOSE", "AEHR", "AXTI", "LWLG", "AAOI", "WOLF", "NOK", "BB",
+  "ARQT", "PLAB", "QS", "SLDP", "ASTI", "DGXX", "KEEL", "LFLY",
+  "SHOP", "ROKU", "DKNG", "PINS", "SNAP",
+]
+
+// ─── Combined universe (for "all" if needed) ─────────────────────────────────
+export function getAllTickers(): string[] {
+  return Array.from(new Set([
+    ...SP500, ...ETF_LIST, ...NYSE_INTERESTING, ...SPECULATIVE_MOMENTUM,
+  ]))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  Sector Groups (Rocket Tool style)
+//  Updated from Nov-2026 sector reference images
+//  Note: a ticker may belong to multiple groups
+// ═══════════════════════════════════════════════════════════════════════════
 
 export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; tickers: string[] }> = {
   mag7: {
@@ -162,99 +192,116 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     emoji: "🚀",
     tickers: ["NVDA", "MSFT", "AAPL", "GOOGL", "GOOG", "META", "AMZN", "TSLA"],
   },
-  semis: {
+  semi: {
     label: "Semiconductor",
     emoji: "🔌",
+    // จาก image semi.jpg + เพิ่มตัวที่ขาด
     tickers: [
-      "NVDA", "AMD", "AVGO", "QCOM", "TXN", "AMAT", "LRCX", "KLAC", "MU",
-      "INTC", "ASML", "TSM", "ARM", "ON", "MRVL", "MCHP", "QRVO", "TER",
-      "NXPI", "GFS", "MPWR", "SWKS", "ADI", "ENPH",
-    ],
-  },
-  software: {
-    label: "Software",
-    emoji: "💻",
-    tickers: [
-      "MSFT", "ORCL", "CRM", "ADBE", "NOW", "INTU", "SNPS", "CDNS", "WDAY",
-      "PANW", "CRWD", "FTNT", "DDOG", "SNOW", "MDB", "NET", "PTC", "ANSS",
-      "TYL", "ROP", "FICO", "GDDY", "MSCI", "CPAY", "FI", "GEN",
+      "NVDA", "TSM", "AVGO", "MU", "AMD", "ASML", "INTC", "LRCX", "AMAT",
+      "ARM", "QCOM", "KLAC", "SNDK", "ADI", "STX", "MRVL", "WDC", "CDNS",
+      "SNPS", "MPWR", "LITE", "ON", "SMCI", "TTMI", "AMKR", "AAOI", "TRMB",
+      "APLD", "QS", "WOLF", "AEHR", "POET", "SGML", "TE", "SLDP", "ASTI",
+      "NXPI", "MCHP", "SWKS", "QRVO", "TER", "ENPH", "GFS",
     ],
   },
   datacenter: {
     label: "Data Center",
     emoji: "🏢",
+    // จาก image data center.jpg (เน้น infra เท่านั้น)
     tickers: [
-      "DLR", "EQIX", "AMT", "VST", "CEG", "TLN", "NEE", "DUK", "GEV",
-      "ETR", "AEP", "EXC", "ED", "SO", "XEL", "SRE", "D", "AES",
+      "DELL", "ANET", "STX", "MRVL", "CRWV", "ALAB", "NBIS", "HPE", "PSTG",
+      "SMCI", "IREN", "CLSK", "APLD", "VRT", "ETN", "GEV", "VST", "CEG",
+      "DLR", "EQIX", "AMT",
+    ],
+  },
+  software: {
+    label: "Software",
+    emoji: "💻",
+    // จาก image data center.jpg ส่วนที่เป็น software/cloud
+    tickers: [
+      "MSFT", "ORCL", "PLTR", "CRM", "APP", "SHOP", "NOW", "ADBE", "FTNT",
+      "DDOG", "MDB", "TWLO", "VEEV", "DOCN", "TTD", "INTU", "CIEN", "SYM",
+      "AXON", "EFX", "NXT", "WDAY", "TEAM", "PANW", "CRWD", "SNOW", "NET",
+      "ZS", "CDNS", "SNPS", "ANSS", "PTC", "TYL", "FICO", "GDDY", "MSCI",
     ],
   },
   defense: {
-    label: "Defense / Aerospace",
+    label: "Defense",
     emoji: "🛡️",
+    // จาก image defense.jpg
     tickers: [
-      "LMT", "RTX", "NOC", "GD", "HII", "LDOS", "TDG", "AXON", "PLTR",
-      "BA", "GE", "TXT", "HWM", "LHX",
+      "GE", "GEV", "RTX", "LMT", "NOC", "TDG", "LHX", "AXON", "BWXT", "KTOS",
+      "AVAV", "ONDS", "AMPX", "RCAT", "GD", "HII", "LDOS", "TXT", "HWM",
     ],
   },
   space: {
     label: "Space / Aviation",
     emoji: "🚁",
-    tickers: ["BA", "LMT", "NOC", "RTX", "GD", "TDG", "HWM", "AXON", "GEV"],
+    // จาก image space.jpg
+    tickers: [
+      "GE", "RTX", "NOC", "RKLB", "TDG", "LHX", "ASTS", "SATS", "JOBY",
+      "AVAV", "FLY", "LUNR", "VOYG", "AMPX", "SES", "SPCE", "UAVS", "DFLI",
+      "BA", "ACHR",
+    ],
   },
   pharma: {
     label: "Pharma / Biotech",
     emoji: "💊",
+    // จาก image pharma & biotech.jpg
     tickers: [
-      "LLY", "MRK", "PFE", "ABBV", "AMGN", "BMY", "GILD", "VRTX", "REGN",
-      "BIIB", "MRNA", "ISRG", "TMO", "DHR", "ABT", "JNJ", "ZTS", "IDXX",
-      "INCY", "ARGX", "DXCM", "RPRX",
+      "LLY", "JNJ", "ABBV", "MRK", "AZN", "NVS", "NVO", "AMGN", "GILD",
+      "PFE", "REGN", "BNTX", "SOLV", "SMMT", "PODD", "LNTH", "APLS", "CRSP",
+      "VKTX", "PLAB", "BEAM", "SLNO", "ARQT", "TMDX", "HRMY", "AGIO",
+      "INVA", "ABCL", "MNMD", "IOVA", "ZBIO", "RNA", "MRNA", "ISRG", "TMO",
+      "ABT", "BMY", "VRTX", "BIIB", "IDXX", "DXCM", "RXRX",
     ],
   },
   energy: {
-    label: "Energy",
+    label: "Energy / Nuclear",
     emoji: "⚡",
+    // จาก image Energy.jpg
     tickers: [
-      "XOM", "CVX", "COP", "EOG", "OXY", "SLB", "MPC", "PSX", "BKR",
-      "HAL", "FANG", "VLO", "WMB", "OKE", "KMI", "DVN", "TRGP", "HES",
-      "APA", "CTRA", "MRO",
+      "XOM", "CVX", "NEE", "CEG", "DUK", "ET", "OXY", "VST", "EQT", "NRG",
+      "OKLO", "AES", "NXE", "MTDR", "UEC", "BZ", "UUUU", "SMR", "DNN",
+      "SPGP", "EOSE", "SOC", "NNE", "URG", "COP", "EOG", "SLB", "MPC",
+      "PSX", "BKR", "HAL", "FANG", "VLO", "WMB", "OKE", "KMI", "DVN", "TRGP",
     ],
   },
   finance: {
     label: "Banks / Finance",
     emoji: "🏦",
+    // จาก image bank finance.jpg
     tickers: [
-      "JPM", "BAC", "WFC", "MS", "GS", "C", "USB", "PNC", "TFC", "SCHW",
-      "BLK", "AXP", "V", "MA", "BX", "KKR", "COF", "MET", "PRU", "AFL",
-      "ALL", "TRV", "CB", "MMC", "AON", "PYPL", "COIN", "SPGI", "ICE",
-      "NDAQ", "CME", "MCO",
+      "BRK.B", "JPM", "V", "MA", "BAC", "MS", "GS", "C", "AXP", "BLK",
+      "CME", "MCO", "SYF", "IDCC", "WFC", "USB", "PNC", "TFC", "SCHW",
+      "BX", "KKR", "COF", "MET", "PRU", "AFL", "ALL", "TRV", "CB", "MMC",
+      "AON", "PYPL", "COIN", "SPGI", "ICE", "NDAQ", "HOOD", "AFRM", "SOFI",
     ],
   },
   dividend: {
-    label: "Dividend / REIT",
+    label: "Dividend",
     emoji: "💰",
+    // จาก image dividend.jpg
     tickers: [
-      "O", "PLD", "AMT", "EQIX", "WELL", "SPG", "VICI", "DLR", "PSA",
-      "AVB", "EQR", "ARE", "INVH", "EXR", "VTR", "ESS", "MAA", "UDR",
-      "JNJ", "PG", "KO", "PEP", "MO", "PM", "T", "VZ", "TMUS",
+      "SCHD", "WM", "NKE", "AFL", "OXY", "O", "TGT", "HPE", "VICI", "KHC",
+      "AGNC", "BEP", "MAIN", "ABBV", "BAC", "KO", "PG", "MS", "GE", "MRK",
+      "GS", "AZN", "NVS", "C", "AXP", "PEP", "VZ", "MCD", "NEE", "AMGN",
+      "BLK", "ABT", "PFE", "MO", "LMT", "LOW", "CVS", "SBUX", "DUK", "FDX",
+      "T", "TMUS", "JNJ", "PLD", "AMT", "EQIX", "WELL", "SPG",
     ],
   },
-  consumer: {
-    label: "Consumer",
-    emoji: "🛒",
-    tickers: [
-      "WMT", "COST", "HD", "MCD", "NKE", "SBUX", "LOW", "TGT", "BKNG",
-      "MAR", "DIS", "CMCSA", "MELI", "ABNB", "LULU", "ORLY", "PG", "KO",
-      "PEP", "MDLZ", "KHC", "MNST", "EL", "CL", "KMB",
-    ],
+  speculative: {
+    label: "Speculative / Momentum",
+    emoji: "🔥",
+    tickers: SPECULATIVE_MOMENTUM,
   },
   crypto: {
     label: "Crypto-Related",
     emoji: "₿",
-    tickers: ["COIN", "MSTR", "RIOT", "MARA", "CLSK", "HUT", "BITF"],
+    tickers: ["COIN", "MSTR", "MARA", "RIOT", "CLSK", "HUT", "BITF", "IBIT", "FBTC"],
   },
 }
 
-// Reverse map: ticker → sectors[]
 export function getSectorsForTicker(ticker: string): string[] {
   const result: string[] = []
   for (const [key, group] of Object.entries(SECTOR_GROUPS)) {

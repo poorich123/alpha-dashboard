@@ -1,14 +1,16 @@
 ﻿"use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { RefreshCw, ExternalLink, Calendar, TrendingUp } from "lucide-react"
+import { RefreshCw, ExternalLink, Calendar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePortfolioStore } from "@/store/portfolioStore"
 import { getMarketNews, getNews, getEarningsCalendar, getEconomicCalendar } from "@/lib/finnhub"
+import { quickScoreSentiment, quickScoreImpact } from "@/lib/newsMonitor"
 import type { NewsItem, EarningsCalendarItem, EconomicEvent } from "@/types"
 import { format, addDays, formatDistanceToNow, parseISO } from "date-fns"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
 import toast from "react-hot-toast"
+import { cn } from "@/lib/utils"
 
 type Filter = "all" | "holdings" | "macro" | "earnings"
 
@@ -16,9 +18,11 @@ export default function NewsPage() {
   const { positions } = usePortfolioStore()
   const [filter, setFilter] = useState<Filter>("all")
   const [news, setNews] = useState<NewsItem[]>([])
+  const [holdingNewsByTicker, setHoldingNewsByTicker] = useState<Record<string, NewsItem[]>>({})
   const [earnings, setEarnings] = useState<EarningsCalendarItem[]>([])
   const [economic, setEconomic] = useState<EconomicEvent[]>([])
   const [loading, setLoading] = useState(false)
+  const [expandedTickers, setExpandedTickers] = useState<Record<string, boolean>>({})
 
   const tickers = positions.filter((p) => p.isActive && p.category !== "watchlist").map((p) => p.ticker)
 
@@ -38,17 +42,25 @@ export default function NewsPage() {
       setEarnings(earningsData.slice(0, 30))
       setEconomic(econData.slice(0, 20))
 
-      // Also fetch news for holdings
+      // ── Fetch news for ALL holdings (parallel, batch 5) ──
       if (tickers.length > 0) {
-        try {
-          const holdingNews = await getNews(tickers[0])
-          setNews((prev) => {
-            const ids = new Set(prev.map((n) => n.id))
-            return [...prev, ...holdingNews.filter((n) => !ids.has(n.id))].slice(0, 100)
+        const byTicker: Record<string, NewsItem[]> = {}
+        const BATCH = 5
+        for (let i = 0; i < tickers.length; i += BATCH) {
+          const batch = tickers.slice(i, i + BATCH)
+          const results = await Promise.allSettled(batch.map(t => getNews(t)))
+          batch.forEach((t, idx) => {
+            const res = results[idx]
+            if (res.status === "fulfilled") {
+              byTicker[t] = (res.value || []).slice(0, 8) // limit 8 per ticker
+            }
           })
-        } catch {
-          // ignore
         }
+        setHoldingNewsByTicker(byTicker)
+        // Auto-expand first 3 tickers
+        const auto: Record<string, boolean> = {}
+        tickers.slice(0, 3).forEach(t => { auto[t] = true })
+        setExpandedTickers(auto)
       }
     } catch (err) {
       toast.error("Failed to load news: " + String(err))
@@ -112,6 +124,16 @@ export default function NewsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* News Feed */}
         <div className="lg:col-span-2 space-y-3">
+          {filter === "holdings" ? (
+            <HoldingsNewsByTicker
+              tickers={tickers}
+              newsByTicker={holdingNewsByTicker}
+              loading={loading}
+              expanded={expandedTickers}
+              setExpanded={setExpandedTickers}
+            />
+          ) : (
+            <>
           <div className="text-xs text-gray-500 uppercase tracking-wide mb-3">
             {filteredNews.length} articles
           </div>
@@ -172,6 +194,8 @@ export default function NewsPage() {
                 </a>
               )
             })
+          )}
+            </>
           )}
         </div>
 
@@ -266,6 +290,141 @@ export default function NewsPage() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Holdings News By Ticker (Q3 + Q4 fix) ──────────────────────────────────
+//
+// แสดงข่าวแยกตาม ticker · กดได้พับ-เปิด · มี sentiment ต่อข่าว (good/bad/neutral)
+//
+interface HoldingsNewsProps {
+  tickers: string[]
+  newsByTicker: Record<string, NewsItem[]>
+  loading: boolean
+  expanded: Record<string, boolean>
+  setExpanded: (e: Record<string, boolean>) => void
+}
+
+function HoldingsNewsByTicker({ tickers, newsByTicker, loading, expanded, setExpanded }: HoldingsNewsProps) {
+  if (loading && Object.keys(newsByTicker).length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <InlineSpinner className="text-[#00D8EE] w-6 h-6" />
+        <span className="ml-2 text-gray-400">Loading news for {tickers.length} tickers...</span>
+      </div>
+    )
+  }
+
+  if (tickers.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        No holdings yet · add positions to see related news
+      </div>
+    )
+  }
+
+  // Aggregate sentiment per ticker
+  const tickerSummary = tickers.map(t => {
+    const items = newsByTicker[t] || []
+    const bullish = items.filter(n => quickScoreSentiment(n.headline, n.summary) === "BULLISH").length
+    const bearish = items.filter(n => quickScoreSentiment(n.headline, n.summary) === "BEARISH").length
+    const overall = bullish > bearish ? "good" : bearish > bullish ? "bad" : "neutral"
+    return { ticker: t, count: items.length, bullish, bearish, overall: overall as "good" | "bad" | "neutral" }
+  })
+
+  return (
+    <div className="space-y-3">
+      <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">
+        News by Holding · {tickers.length} tickers
+      </div>
+
+      {tickerSummary.map(({ ticker, count, bullish, bearish, overall }) => {
+        const items = newsByTicker[ticker] || []
+        const isExpanded = expanded[ticker]
+        const overallColor = overall === "good" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/30"
+                          : overall === "bad" ? "text-red-400 bg-red-500/10 border-red-500/30"
+                          : "text-gray-400 bg-gray-500/10 border-gray-700"
+        const overallLabel = overall === "good" ? "GOOD" : overall === "bad" ? "BAD" : "NEUTRAL"
+
+        return (
+          <div key={ticker} className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
+            {/* Ticker header — click to expand */}
+            <button
+              onClick={() => setExpanded({ ...expanded, [ticker]: !isExpanded })}
+              className="w-full flex items-center justify-between p-3 hover:bg-[#1A2E52]/30 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <span className="text-white font-bold text-sm">{ticker}</span>
+                <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded border", overallColor)}>
+                  {overallLabel}
+                </span>
+                <span className="text-[10px] text-gray-500">
+                  {count} news · 🟢 {bullish} · 🔴 {bearish}
+                </span>
+              </div>
+              {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+            </button>
+
+            {/* News items (only when expanded) */}
+            {isExpanded && (
+              <div className="border-t border-[#1A2E52]/60 p-3 space-y-2">
+                {items.length === 0 ? (
+                  <div className="text-center py-4 text-gray-600 text-xs">No recent news</div>
+                ) : (
+                  items.map((article) => {
+                    const sentiment = quickScoreSentiment(article.headline, article.summary)
+                    const impact = quickScoreImpact(article.headline, article.summary)
+                    const ageStr = formatDistanceToNow(new Date(article.datetime * 1000), { addSuffix: true })
+
+                    const SentIcon = sentiment === "BULLISH" ? TrendingUp
+                                  : sentiment === "BEARISH" ? TrendingDown : Minus
+                    const sentColor = sentiment === "BULLISH" ? "text-emerald-400"
+                                    : sentiment === "BEARISH" ? "text-red-400" : "text-gray-500"
+                    const sentLabel = sentiment === "BULLISH" ? "GOOD"
+                                    : sentiment === "BEARISH" ? "BAD" : "NEUTRAL"
+                    const impactColor = impact === "CRITICAL" ? "bg-red-500/20 text-red-300 border-red-500/40"
+                                      : impact === "HIGH" ? "bg-orange-500/15 text-orange-300 border-orange-500/30"
+                                      : impact === "MEDIUM" ? "bg-yellow-500/10 text-yellow-300 border-yellow-500/20"
+                                      : "bg-gray-700/30 text-gray-500 border-gray-700"
+
+                    return (
+                      <a
+                        key={article.id}
+                        href={article.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block bg-[#070B18] border border-[#1A2E52]/60 rounded-lg p-2.5 hover:border-[#00C2D4]/40 transition-colors group"
+                      >
+                        <div className="flex items-start gap-2">
+                          <SentIcon className={cn("w-3.5 h-3.5 flex-shrink-0 mt-0.5", sentColor)} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                              <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border", sentColor === "text-emerald-400" ? "bg-emerald-500/10 border-emerald-500/30" : sentColor === "text-red-400" ? "bg-red-500/10 border-red-500/30" : "bg-gray-700/30 border-gray-700", sentColor)}>
+                                {sentLabel}
+                              </span>
+                              {impact !== "LOW" && (
+                                <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border", impactColor)}>
+                                  {impact}
+                                </span>
+                              )}
+                              <span className="text-[9px] text-gray-600">{article.source}</span>
+                              <span className="text-[9px] text-gray-700">· {ageStr}</span>
+                            </div>
+                            <div className="text-xs text-white group-hover:text-cyan-300 transition-colors line-clamp-2 leading-snug">
+                              {article.headline}
+                            </div>
+                          </div>
+                        </div>
+                      </a>
+                    )
+                  })
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

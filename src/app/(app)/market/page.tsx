@@ -21,12 +21,13 @@ import { formatDistanceToNow } from "date-fns"
 import toast from "react-hot-toast"
 
 const CATEGORIES: { key: CategoryKey; label: string; emoji: string; description: string }[] = [
-  { key: "premium", label: "Premium",   emoji: "💎", description: "Mega-cap leaders · ~15 stocks · ~30s" },
-  { key: "nasdaq",  label: "Nasdaq 100", emoji: "🔷", description: "Nasdaq-100 · 100 stocks · ~3 min" },
-  { key: "sp500",   label: "S&P 500",   emoji: "🇺🇸", description: "Full S&P 500 · 500 stocks · ~12 min" },
-  { key: "all",     label: "Combined",  emoji: "🌐", description: "S&P 500 ∪ Nasdaq 100 · ~530 stocks · ~13 min" },
-  { key: "etf",     label: "ETF",       emoji: "📊", description: "Sector + Thematic · ~30 funds · ~1 min" },
+  { key: "sp500",       label: "S&P 500",     emoji: "🇺🇸", description: "S&P 500 large caps · 500 stocks · ~12 min" },
+  { key: "etf",         label: "ETF",         emoji: "📊", description: "Sector + Thematic · ~35 funds · ~1 min" },
+  { key: "nyse",        label: "NYSE",        emoji: "🌍", description: "Intl ADRs (China/Japan/EM) · ~40 · ~1 min" },
+  { key: "speculative", label: "Speculative", emoji: "🔥", description: "Momentum small-mid cap · ~60 · ~2 min" },
 ]
+
+const DEFAULT_CATEGORY: CategoryKey = "speculative"
 
 const PAGE_SIZE = 10
 
@@ -58,8 +59,13 @@ function countTechMatches(stocks: MarketScanResult[], key: TechFilterKey): numbe
 
 function matchTechFilter(s: MarketScanResult, key: TechFilterKey): boolean {
   switch (key) {
-    case "near_support":     return s.support1 > 0 && (s.currentPrice - s.support1) / s.currentPrice < 0.03
-    case "broke_resistance": return s.currentPrice > s.resistance1
+    case "near_support":
+      // Within 3% of support level (good buy zone)
+      return s.support1 > 0 && (s.currentPrice - s.support1) / s.currentPrice < 0.03
+    case "broke_resistance":
+      // Near or above 52-week high (ATH territory) OR breaking pivot resistance
+      return (s.week52High > 0 && s.currentPrice >= s.week52High * 0.97)
+          || (s.resistance1 > 0 && s.currentPrice > s.resistance1)
     case "rsi_high":         return s.rsi > 70
     case "rsi_low":          return s.rsi < 30
     case "above_ema50":      return s.aboveEma50
@@ -69,7 +75,7 @@ function matchTechFilter(s: MarketScanResult, key: TechFilterKey): boolean {
 }
 
 export default function MarketPage() {
-  const [category, setCategory] = useState<CategoryKey>("premium")
+  const [category, setCategory] = useState<CategoryKey>(DEFAULT_CATEGORY)
   const [filter, setFilter] = useState<FilterKey>("all")
   const [sectorKey, setSectorKey] = useState<string>("all")        // sector group
   const [techFilter, setTechFilter] = useState<TechFilterKey>("none")

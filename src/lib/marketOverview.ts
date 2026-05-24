@@ -15,17 +15,16 @@
 
 import { analyzeStock, type AnalyzerResult } from "./stockAnalyzer"
 import {
-  SP500, NASDAQ_100, PREMIUM, ETF_LIST, getCombinedUniverse,
+  SP500, ETF_LIST, NYSE_INTERESTING, SPECULATIVE_MOMENTUM,
 } from "./stockLists"
 
-// ─── Stock universe (full index constituents) ────────────────────────────────
+// ─── Stock universe — 4 categories ───────────────────────────────────────────
 
 export const STOCK_UNIVERSE = {
-  premium: PREMIUM,              // 15 mega-caps
-  sp500:   SP500,                // ~500 full S&P 500
-  nasdaq:  NASDAQ_100,           // ~100 Nasdaq 100
-  all:     getCombinedUniverse(),// ~530 S&P500 ∪ Nasdaq100 (deduped)
-  etf:     ETF_LIST,             // ~30 ETFs
+  sp500:       SP500,                 // ~500 S&P 500 large caps
+  etf:         ETF_LIST,              // ~35 ETFs
+  nyse:        NYSE_INTERESTING,      // ~40 NYSE non-S&P (intl ADRs + others)
+  speculative: SPECULATIVE_MOMENTUM,  // ~60 NASDAQ momentum small-mid cap
 }
 
 export type CategoryKey = keyof typeof STOCK_UNIVERSE
@@ -61,9 +60,11 @@ export interface MarketScanResult {
   // Technical state (for filters)
   rsi: number              // 0-100
   support1: number         // nearest support below current price
-  resistance1: number      // nearest resistance above current price
+  resistance1: number      // nearest resistance above current price (= TP1 proxy)
   aboveEma50: boolean
   aboveEma200: boolean
+  week52High: number       // 52-week high (for "broke resistance" detection)
+  week52Low: number        // 52-week low
 
   // Trend for sparkline (last 30 closes)
   trend30d: number[]
@@ -114,6 +115,8 @@ function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
     resistance1:  r.tradeLevels.tp1,             // proxy: TP1 = nearest resistance
     aboveEma50:   r.snapshot.currentPrice > r.snapshot.sma50,
     aboveEma200:  r.snapshot.currentPrice > r.snapshot.sma200,
+    week52High:   r.snapshot.week52High,
+    week52Low:    r.snapshot.week52Low,
     trend30d: r.candles.c.slice(-30),
     gauges: r.trendGauges.map(g => ({ timeframe: g.timeframe, score: g.score })),
     scannedAt: Date.now(),
