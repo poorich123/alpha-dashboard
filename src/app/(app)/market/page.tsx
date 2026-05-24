@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useCallback, useEffect, useMemo } from "react"
-import { RefreshCw, ScanLine, TrendingUp, ChevronLeft, ChevronRight, Filter, Search, X } from "lucide-react"
+import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import { RefreshCw, ScanLine, TrendingUp, ChevronLeft, ChevronRight, Filter, Search, X, Timer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   scanMarket,
@@ -44,6 +44,10 @@ const CATEGORIES = CATEGORY_META.map(c => {
 const DEFAULT_CATEGORY: CategoryKey = "speculative"
 
 const PAGE_SIZE = 10
+
+// Auto-refresh options (minutes; 0 = off)
+const AUTO_REFRESH_OPTIONS = [0, 5, 10, 15] as const
+const AUTO_REFRESH_KEY = "market.autoRefreshMin"
 
 type FilterKey = "all" | "buy" | "strong_buy" | "high_conf"
 type TechFilterKey = "none" | "near_support" | "broke_resistance" | "rsi_high" | "rsi_low" | "above_ema50" | "below_ema50"
@@ -101,6 +105,10 @@ export default function MarketPage() {
   const [loadingIndices, setLoadingIndices] = useState(false)
   const [progress, setProgress] = useState({ done: 0, total: 0 })
   const [lastScannedAt, setLastScannedAt] = useState<number | null>(null)
+  const [autoRefreshMin, setAutoRefreshMin] = useState<number>(0)   // 0 = off
+  const [nextRefreshIn, setNextRefreshIn] = useState<number>(0)     // seconds remaining
+  const scanningRef = useRef(scanning)
+  useEffect(() => { scanningRef.current = scanning }, [scanning])
 
   const character = PAGE_CHARACTERS.swing  // Firefly — momentum trading
 
@@ -154,6 +162,50 @@ export default function MarketPage() {
     handleScan(category)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // ── Auto-refresh: load preference from localStorage on mount ───────────
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(AUTO_REFRESH_KEY)
+      if (saved) {
+        const n = parseInt(saved, 10)
+        if (AUTO_REFRESH_OPTIONS.includes(n as (typeof AUTO_REFRESH_OPTIONS)[number])) {
+          setAutoRefreshMin(n)
+        }
+      }
+    } catch { /* SSR / blocked storage */ }
+  }, [])
+
+  // Persist preference
+  useEffect(() => {
+    try { localStorage.setItem(AUTO_REFRESH_KEY, String(autoRefreshMin)) } catch { /* ignore */ }
+  }, [autoRefreshMin])
+
+  // Auto-refresh timer — periodic scan + countdown
+  useEffect(() => {
+    if (autoRefreshMin === 0) {
+      setNextRefreshIn(0)
+      return
+    }
+    const intervalSec = autoRefreshMin * 60
+    setNextRefreshIn(intervalSec)
+
+    // Tick every second to update countdown
+    const tick = setInterval(() => {
+      setNextRefreshIn((prev) => {
+        if (prev <= 1) {
+          // Time's up — trigger scan if not already scanning
+          if (!scanningRef.current) {
+            handleScan(category, true)
+          }
+          return intervalSec  // reset countdown
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(tick)
+  }, [autoRefreshMin, category, handleScan])
 
   // When user switches category
   const handleCategoryChange = (cat: CategoryKey) => {
@@ -241,6 +293,35 @@ export default function MarketPage() {
             {scanning ? <RefreshCw className="w-3 h-3 animate-spin" /> : <ScanLine className="w-3 h-3" />}
             {scanning ? `Scanning ${progress.done}/${progress.total}…` : "Scan Market"}
           </Button>
+
+          {/* Auto-refresh toggle */}
+          <div className="flex items-center gap-1 bg-[#0A1424]/60 border border-[#1A2E52] rounded-lg px-1.5 py-0.5">
+            <Timer className="w-3 h-3 text-gray-500" />
+            <span className="text-[10px] text-gray-500 mr-1">Auto</span>
+            {AUTO_REFRESH_OPTIONS.map((n) => {
+              const active = autoRefreshMin === n
+              return (
+                <button
+                  key={n}
+                  onClick={() => setAutoRefreshMin(n)}
+                  className={cn(
+                    "px-1.5 py-0.5 rounded text-[10px] font-semibold transition-colors",
+                    active
+                      ? "bg-[#00C2D4]/20 text-[#00D8EE] border border-[#00C2D4]/40"
+                      : "text-gray-500 hover:text-gray-300 border border-transparent",
+                  )}
+                >
+                  {n === 0 ? "OFF" : `${n}m`}
+                </button>
+              )
+            })}
+            {autoRefreshMin > 0 && nextRefreshIn > 0 && (
+              <span className="text-[10px] text-cyan-400/70 ml-1 tabular-nums">
+                · {Math.floor(nextRefreshIn / 60)}:{String(nextRefreshIn % 60).padStart(2, "0")}
+              </span>
+            )}
+          </div>
+
           {lastScannedAt && (
             <span className="text-[10px] text-gray-600">
               Last scan {formatDistanceToNow(lastScannedAt, { addSuffix: true })}
