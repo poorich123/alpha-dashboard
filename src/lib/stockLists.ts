@@ -200,6 +200,16 @@ export const SPECULATIVE_MOMENTUM: string[] = [
   "TKO", "BROS", "CAVA",
   // Clean Energy storage / Carbon capture
   "NPWR", "STEM", "SES",
+  // Solar / Battery storage momentum (2026 hot)
+  "TE", "FLNC", "SHLS", "ARRY", "RUN",
+  // Biotech leaders missing (Duchenne MD + oncology + endocrine + gene editing)
+  "SRPT", "NUVL", "CRNX", "BEAM",
+  // Consumer momentum
+  "WING", "CHWY", "PLNT",
+  // Adtech AI rotation
+  "TBLA", "MGNI", "PUBM",
+  // AI Insurance
+  "LMND",
 ]
 
 // ─── Combined universe (for "all" if needed) ─────────────────────────────────
@@ -290,6 +300,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "ABT", "BMY", "VRTX", "BIIB", "IDXX", "DXCM", "RXRX",
       // Momentum additions — gene editing + NASH + cancer + genetic testing + CNS
       "PRME", "VERV", "MDGL", "RVMD", "NTRA", "AXSM",
+      // Duchenne + oncology + endocrine + gene editing trio
+      "SRPT", "NUVL", "CRNX", "BEAM",
     ],
   },
   energy: {
@@ -303,6 +315,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "PSX", "BKR", "HAL", "FANG", "VLO", "WMB", "OKE", "KMI", "DVN", "TRGP",
       // Momentum additions — carbon capture + battery storage
       "NPWR", "STEM", "SES",
+      // Solar + battery storage momentum
+      "TE", "FLNC", "SHLS", "ARRY", "RUN",
     ],
   },
   finance: {
