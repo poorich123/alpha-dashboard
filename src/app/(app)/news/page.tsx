@@ -7,6 +7,7 @@ import { usePortfolioStore } from "@/store/portfolioStore"
 import { getMarketNews, getNews, getEarningsCalendar, getEarnings, getEconomicCalendar } from "@/lib/finnhub"
 import { quickScoreSentiment, quickScoreImpact } from "@/lib/newsMonitor"
 import { detectMacroRisks, type MacroSnapshot } from "@/lib/macroRisk"
+import { getUSEconomicEvents } from "@/lib/usEconomicSchedule"
 import type { NewsItem, EarningsCalendarItem, EconomicEvent } from "@/types"
 import { format, addDays, formatDistanceToNow, parseISO } from "date-fns"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
@@ -59,7 +60,11 @@ export default function NewsPage() {
       ])
 
       setNews(marketNews.slice(0, 50))
-      setEconomic(econData.slice(0, 20))
+
+      // Merge Finnhub's intl events with US schedule (Finnhub free tier
+      // doesn't return major US events like PCE/CPI/NFP/FOMC).
+      const usEvents = getUSEconomicEvents(new Date(), addDays(new Date(), 60))
+      setEconomic([...econData, ...usEvents])
 
       // Per-ticker fallback for holdings that didn't appear in bulk (small caps)
       let mergedEarnings = earningsData
@@ -407,10 +412,10 @@ function MacroDashboard({ snapshot, loadingSnap, economic, macroNews }: MacroDas
   // Filter by timeframe (event time is ISO-like; parseable by Date)
   const now = new Date()
   const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999)
-  const endOfWeek = new Date(now)
-  endOfWeek.setDate(now.getDate() + (7 - ((now.getDay() + 6) % 7) - 1)) // end of current ISO week (Sunday)
-  endOfWeek.setHours(23, 59, 59, 999)
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+  // "This Week" = next 7 days from now (rolling window, not ISO calendar week)
+  const endOfWeek = new Date(now); endOfWeek.setDate(now.getDate() + 7)
+  // "This Month" = next 30 days from now (rolling window)
+  const endOfMonth = new Date(now); endOfMonth.setDate(now.getDate() + 30)
 
   const inTF = (ev: EconomicEvent): boolean => {
     if (econTF === "all" || !ev.time) return true
