@@ -1,16 +1,34 @@
 ﻿"use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { RefreshCw, ExternalLink, Calendar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from "lucide-react"
+import { RefreshCw, ExternalLink, Calendar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, AlertTriangle, Activity } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePortfolioStore } from "@/store/portfolioStore"
 import { getMarketNews, getNews, getEarningsCalendar, getEarnings, getEconomicCalendar } from "@/lib/finnhub"
 import { quickScoreSentiment, quickScoreImpact } from "@/lib/newsMonitor"
+import { detectMacroRisks, type MacroSnapshot } from "@/lib/macroRisk"
 import type { NewsItem, EarningsCalendarItem, EconomicEvent } from "@/types"
 import { format, addDays, formatDistanceToNow, parseISO } from "date-fns"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
 import toast from "react-hot-toast"
 import { cn } from "@/lib/utils"
+
+// Keywords used by Macro tab to filter macro-relevant news from general feed
+const MACRO_KEYWORDS = [
+  "fed", "fomc", "powell", "rate cut", "rate hike", "interest rate",
+  "cpi", "ppi", "pce", "inflation", "deflation",
+  "gdp", "nfp", "payroll", "unemployment", "jobless",
+  "recession", "yield", "treasury", "bond market", "10-year",
+  "trump", "tariff", "china trade", "trade war",
+  "oil", "opec", "brent", "crude", "saudi", "iran", "russia",
+  "vix", "volatility", "dollar index", "dxy",
+  "earnings season", "fiscal", "stimulus", "debt ceiling",
+]
+
+function isMacroNews(n: NewsItem): boolean {
+  const hay = `${n.headline} ${n.summary || ""}`.toLowerCase()
+  return MACRO_KEYWORDS.some(kw => hay.includes(kw))
+}
 
 type Filter = "all" | "holdings" | "macro" | "earnings"
 
@@ -23,6 +41,8 @@ export default function NewsPage() {
   const [economic, setEconomic] = useState<EconomicEvent[]>([])
   const [loading, setLoading] = useState(false)
   const [expandedTickers, setExpandedTickers] = useState<Record<string, boolean>>({})
+  const [macroSnap, setMacroSnap] = useState<MacroSnapshot | null>(null)
+  const [loadingMacro, setLoadingMacro] = useState(false)
 
   const tickers = positions.filter((p) => p.isActive && p.category !== "watchlist").map((p) => p.ticker)
 
@@ -96,6 +116,17 @@ export default function NewsPage() {
     loadData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Lazy-load macro snapshot once user opens Macro tab
+  useEffect(() => {
+    if (filter === "macro" && !macroSnap && !loadingMacro) {
+      setLoadingMacro(true)
+      detectMacroRisks()
+        .then(setMacroSnap)
+        .catch(() => toast.error("Failed to load macro risks"))
+        .finally(() => setLoadingMacro(false))
+    }
+  }, [filter, macroSnap, loadingMacro])
+
   const myTickerSet = new Set(tickers)
 
   const filteredNews = news.filter((n) => {
@@ -103,7 +134,7 @@ export default function NewsPage() {
       return tickers.some((t) => n.related?.includes(t) || n.headline.includes(t))
     }
     if (filter === "macro") {
-      return ["general", "forex", "crypto"].includes(n.category || "")
+      return isMacroNews(n)
     }
     return true
   })
@@ -165,6 +196,13 @@ export default function NewsPage() {
               earnings={dedupedEarnings}
               myTickerSet={myTickerSet}
               loading={loading}
+            />
+          ) : filter === "macro" ? (
+            <MacroDashboard
+              snapshot={macroSnap}
+              loadingSnap={loadingMacro}
+              economic={economic}
+              macroNews={news.filter(isMacroNews)}
             />
           ) : (
             <>
@@ -323,6 +361,167 @@ export default function NewsPage() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Macro Dashboard — Main Content (Macro tab) ─────────────────────────────
+//
+// 3 sections: Risk snapshot → Economic Calendar (full) → Macro News (keyword)
+//
+interface MacroDashboardProps {
+  snapshot: MacroSnapshot | null
+  loadingSnap: boolean
+  economic: EconomicEvent[]
+  macroNews: NewsItem[]
+}
+
+function MacroDashboard({ snapshot, loadingSnap, economic, macroNews }: MacroDashboardProps) {
+  const riskColor = (lv: string) =>
+    lv === "EXTREME" ? "bg-red-500/20 text-red-300 border-red-500/40" :
+    lv === "HIGH"    ? "bg-orange-500/20 text-orange-300 border-orange-500/40" :
+    lv === "MEDIUM"  ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" :
+                       "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+
+  // High-impact events first, then sort by time
+  const sortedEvents = [...economic].sort((a, b) => {
+    const aImp = a.impact === "high" || a.impact === "3" ? 0 : a.impact === "medium" || a.impact === "2" ? 1 : 2
+    const bImp = b.impact === "high" || b.impact === "3" ? 0 : b.impact === "medium" || b.impact === "2" ? 1 : 2
+    if (aImp !== bImp) return aImp - bImp
+    return (a.time || "").localeCompare(b.time || "")
+  }).slice(0, 20)
+
+  return (
+    <div className="space-y-4">
+      {/* ── Macro Risk Snapshot ─────────────────────────────────── */}
+      {loadingSnap && !snapshot ? (
+        <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-6 flex items-center justify-center">
+          <InlineSpinner className="text-[#00D8EE] w-5 h-5" />
+          <span className="ml-2 text-gray-400 text-sm">Scanning macro indicators…</span>
+        </div>
+      ) : snapshot ? (
+        <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
+          <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="w-4 h-4 text-[#00D8EE]" />
+              <span className="text-sm font-semibold text-white">Macro Risk Snapshot</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Overall:</span>
+              <span className={cn("text-xs font-bold px-2 py-0.5 rounded border", riskColor(snapshot.overallRisk))}>
+                {snapshot.overallRisk}
+              </span>
+              <span className="text-xs text-gray-500">· Score {snapshot.riskScore}/100</span>
+            </div>
+          </div>
+          <div className="p-4">
+            {snapshot.topConcern && (
+              <div className="mb-3 flex items-start gap-2 bg-[#1A2E52]/40 border border-[#1A2E52] rounded-lg p-2.5">
+                <AlertTriangle className="w-4 h-4 text-yellow-400 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-yellow-100">
+                  <span className="text-gray-500 mr-1">Top concern:</span>
+                  {snapshot.topConcern}
+                </div>
+              </div>
+            )}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+              {snapshot.factors.slice(0, 6).map(f => (
+                <div key={f.id} className="bg-[#070B18] border border-[#1A2E52]/60 rounded-lg p-2.5">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm">{f.emoji}</span>
+                      <span className="text-xs font-medium text-white truncate">{f.label}</span>
+                    </div>
+                    <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border", riskColor(f.level))}>
+                      {f.level}
+                    </span>
+                  </div>
+                  <div className="text-[10px] text-gray-500 line-clamp-2">{f.signal}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Economic Calendar (full) ─────────────────────────────── */}
+      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
+        <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-yellow-400" />
+            <span className="text-sm font-semibold text-white">Economic Calendar</span>
+          </div>
+          <span className="text-[10px] text-gray-500">High-impact first · next 30 days</span>
+        </div>
+        {sortedEvents.length === 0 ? (
+          <div className="text-center py-6 text-gray-500 text-sm">No upcoming events</div>
+        ) : (
+          <div className="divide-y divide-[#1A2E52]/60">
+            {sortedEvents.map((e, i) => {
+              const isHigh = e.impact === "high" || e.impact === "3"
+              const isMed  = e.impact === "medium" || e.impact === "2"
+              return (
+                <div key={i} className="px-4 py-2.5 flex items-center justify-between hover:bg-[#1A2E52]/30">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className={cn(
+                      "w-2 h-2 rounded-full flex-shrink-0",
+                      isHigh ? "bg-red-500" : isMed ? "bg-yellow-500" : "bg-gray-600"
+                    )} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-medium text-white truncate">{e.event}</div>
+                      <div className="text-[10px] text-gray-500">
+                        {e.time?.slice(0, 16)} · {e.country}
+                        {e.prev !== undefined && <span> · Prev: {e.prev}</span>}
+                        {e.estimate !== undefined && <span> · Est: {e.estimate}</span>}
+                        {e.unit && <span> {e.unit}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ── Macro News (keyword-filtered) ────────────────────────── */}
+      <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
+        <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <RefreshCw className="w-4 h-4 text-cyan-400" />
+            <span className="text-sm font-semibold text-white">Macro News</span>
+          </div>
+          <span className="text-[10px] text-gray-500">{macroNews.length} articles · Fed/CPI/oil/war keywords</span>
+        </div>
+        {macroNews.length === 0 ? (
+          <div className="text-center py-6 text-gray-500 text-sm">
+            No macro-relevant headlines in current news feed
+          </div>
+        ) : (
+          <div className="divide-y divide-[#1A2E52]/60">
+            {macroNews.slice(0, 20).map(article => {
+              const ageStr = formatDistanceToNow(new Date(article.datetime * 1000), { addSuffix: true })
+              return (
+                <a
+                  key={article.id}
+                  href={article.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block px-4 py-3 hover:bg-[#1A2E52]/30 transition-colors group"
+                >
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[10px] text-gray-500">{article.source}</span>
+                    <span className="text-[10px] text-gray-700">· {ageStr}</span>
+                  </div>
+                  <div className="text-xs font-medium text-white group-hover:text-cyan-300 line-clamp-2 leading-snug">
+                    {article.headline}
+                  </div>
+                </a>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )
