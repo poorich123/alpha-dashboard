@@ -210,6 +210,16 @@ export const SPECULATIVE_MOMENTUM: string[] = [
   "TBLA", "MGNI", "PUBM",
   // AI Insurance
   "LMND",
+  // AI Infra pivot + Crypto-to-AI hosting (CoreScientific HOT)
+  "CORZ", "WGS",
+  // Semi mid-cap leaders + advanced materials
+  "VSH", "ACLS", "ENTG", "OLED",
+  // Fiber networking (AI data center fiber)
+  "CLFD",
+  // Health AI / Cancer diagnostics
+  "EXAS", "GH", "TWST",
+  // GLP-1 challenger
+  "ALT",
 ]
 
 // ─── Combined universe (for "all" if needed) ─────────────────────────────────
@@ -246,6 +256,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "QUIK", "CEVA", "SYNA", "SGH", "SKYT", "POWI",
       // Semi Eq / Advanced Packaging
       "ONTO", "NVTS", "ASX", "VIAV", "COHR",
+      // Mid-cap leaders + advanced materials + display
+      "VSH", "ACLS", "ENTG", "OLED",
     ],
   },
   datacenter: {
@@ -255,7 +267,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     tickers: [
       "DELL", "ANET", "STX", "MRVL", "CRWV", "ALAB", "NBIS", "HPE", "PSTG",
       "SMCI", "IREN", "CLSK", "APLD", "VRT", "ETN", "GEV", "VST", "CEG",
-      "DLR", "EQIX", "AMT", "CRDO",
+      "DLR", "EQIX", "AMT", "CRDO", "CORZ", "CLFD",
     ],
   },
   software: {
@@ -302,6 +314,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "PRME", "VERV", "MDGL", "RVMD", "NTRA", "AXSM",
       // Duchenne + oncology + endocrine + gene editing trio
       "SRPT", "NUVL", "CRNX", "BEAM",
+      // Cancer diagnostics + DNA synthesis + GLP-1 challenger + genetic testing
+      "EXAS", "GH", "TWST", "ALT", "WGS",
     ],
   },
   energy: {
@@ -351,7 +365,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     label: "Crypto-Related",
     emoji: "₿",
     tickers: ["COIN", "MSTR", "MARA", "RIOT", "CLSK", "HUT", "BITF", "IBIT", "FBTC",
-              "WULF", "CIFR", "GLXY", "LAES"],
+              "WULF", "CIFR", "GLXY", "LAES", "CORZ"],
   },
   ai_ecosystem: {
     label: "AI Ecosystem",
