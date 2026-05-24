@@ -192,6 +192,14 @@ export const SPECULATIVE_MOMENTUM: string[] = [
   "LAC", "MP",
   // Bio (psychedelics) / Commercial Space
   "ATAI", "RDW",
+  // Bio momentum extra — Gene editing + NASH + Cancer + Genetic testing + CNS
+  "PRME", "VERV", "MDGL", "RVMD", "NTRA", "AXSM",
+  // AI Hardware / Autonomous (hottest Wall Street plays)
+  "CRDO", "ALAB", "HSAI", "SERV", "EH", "PONY",
+  // Consumer / IPO darlings
+  "TKO", "BROS", "CAVA",
+  // Clean Energy storage / Carbon capture
+  "NPWR", "STEM", "SES",
 ]
 
 // ─── Combined universe (for "all" if needed) ─────────────────────────────────
@@ -237,7 +245,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     tickers: [
       "DELL", "ANET", "STX", "MRVL", "CRWV", "ALAB", "NBIS", "HPE", "PSTG",
       "SMCI", "IREN", "CLSK", "APLD", "VRT", "ETN", "GEV", "VST", "CEG",
-      "DLR", "EQIX", "AMT",
+      "DLR", "EQIX", "AMT", "CRDO",
     ],
   },
   software: {
@@ -267,7 +275,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     tickers: [
       "GE", "RTX", "NOC", "RKLB", "TDG", "LHX", "ASTS", "SATS", "JOBY",
       "AVAV", "FLY", "LUNR", "VOYG", "AMPX", "SES", "SPCE", "UAVS", "DFLI",
-      "BA", "ACHR", "RDW", "PL", "BKSY", "IRDM",
+      "BA", "ACHR", "RDW", "PL", "BKSY", "IRDM", "EH",
     ],
   },
   pharma: {
@@ -280,6 +288,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "VKTX", "PLAB", "BEAM", "SLNO", "ARQT", "TMDX", "HRMY", "AGIO",
       "INVA", "ABCL", "MNMD", "IOVA", "ZBIO", "RNA", "MRNA", "ISRG", "TMO",
       "ABT", "BMY", "VRTX", "BIIB", "IDXX", "DXCM", "RXRX",
+      // Momentum additions — gene editing + NASH + cancer + genetic testing + CNS
+      "PRME", "VERV", "MDGL", "RVMD", "NTRA", "AXSM",
     ],
   },
   energy: {
@@ -291,6 +301,8 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       "OKLO", "AES", "NXE", "MTDR", "UEC", "BZ", "UUUU", "SMR", "DNN",
       "SPGP", "EOSE", "SOC", "NNE", "URG", "COP", "EOG", "SLB", "MPC",
       "PSX", "BKR", "HAL", "FANG", "VLO", "WMB", "OKE", "KMI", "DVN", "TRGP",
+      // Momentum additions — carbon capture + battery storage
+      "NPWR", "STEM", "SES",
     ],
   },
   finance: {
@@ -341,7 +353,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       // Edge AI
       "QUIK", "CEVA", "SYNA",
       // AI Infra
-      "SGH", "SKYT", "NBIS", "CRWV",
+      "SGH", "SKYT", "NBIS", "CRWV", "CRDO", "ALAB",
       // Power
       "POWI", "NVTS", "VRT",
       // Future-Tech (silicon photonics / III-V)
