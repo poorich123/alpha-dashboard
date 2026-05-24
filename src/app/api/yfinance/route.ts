@@ -36,13 +36,17 @@ interface YahooChartResponse {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const symbol   = (searchParams.get("symbol") || "").toUpperCase()
-  const range    = searchParams.get("range")    || "1y"
-  const interval = searchParams.get("interval") || "1d"
+  const rawSymbol = (searchParams.get("symbol") || "").toUpperCase()
+  const range     = searchParams.get("range")    || "1y"
+  const interval  = searchParams.get("interval") || "1d"
 
-  if (!symbol) {
+  if (!rawSymbol) {
     return NextResponse.json({ s: "no_data", error: "missing symbol" }, { status: 400 })
   }
+
+  // Yahoo uses dash for class shares (BRK-B, BF-B, RDS-A), but
+  // S&P 500 canonical format uses dot (BRK.B, BF.B). Normalize here.
+  const symbol = rawSymbol.replace(/\./g, "-")
 
   // Yahoo Finance has two mirror hosts; try both
   const hosts = [
