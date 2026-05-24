@@ -116,16 +116,26 @@ export default function NewsPage() {
     loadData()
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Lazy-load macro snapshot once user opens Macro tab
+  // Lazy-load macro snapshot when Macro tab opens + auto-refresh every 5 min
   useEffect(() => {
-    if (filter === "macro" && !macroSnap && !loadingMacro) {
+    if (filter !== "macro") return
+
+    const fetchSnap = () => {
       setLoadingMacro(true)
       detectMacroRisks()
         .then(setMacroSnap)
         .catch(() => toast.error("Failed to load macro risks"))
         .finally(() => setLoadingMacro(false))
     }
-  }, [filter, macroSnap, loadingMacro])
+
+    // Fetch immediately if we don't have data, or it's stale (>5 min old)
+    const isStale = !macroSnap || Date.now() - macroSnap.scannedAt > 5 * 60 * 1000
+    if (isStale && !loadingMacro) fetchSnap()
+
+    // Refresh every 5 minutes while on Macro tab
+    const id = setInterval(fetchSnap, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [filter]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const myTickerSet = new Set(tickers)
 
@@ -377,20 +387,68 @@ interface MacroDashboardProps {
   macroNews: NewsItem[]
 }
 
+type EconTF = "today" | "week" | "month" | "all"
+const TF_LABELS: Record<EconTF, string> = {
+  today: "Today",
+  week:  "This Week",
+  month: "This Month",
+  all:   "All",
+}
+
 function MacroDashboard({ snapshot, loadingSnap, economic, macroNews }: MacroDashboardProps) {
+  const [econTF, setEconTF] = useState<EconTF>("week")
+
   const riskColor = (lv: string) =>
     lv === "EXTREME" ? "bg-red-500/20 text-red-300 border-red-500/40" :
     lv === "HIGH"    ? "bg-orange-500/20 text-orange-300 border-orange-500/40" :
     lv === "MEDIUM"  ? "bg-yellow-500/20 text-yellow-300 border-yellow-500/40" :
                        "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
 
-  // High-impact events first, then sort by time
-  const sortedEvents = [...economic].sort((a, b) => {
+  // Filter by timeframe (event time is ISO-like; parseable by Date)
+  const now = new Date()
+  const endOfToday = new Date(now); endOfToday.setHours(23, 59, 59, 999)
+  const endOfWeek = new Date(now)
+  endOfWeek.setDate(now.getDate() + (7 - ((now.getDay() + 6) % 7) - 1)) // end of current ISO week (Sunday)
+  endOfWeek.setHours(23, 59, 59, 999)
+  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999)
+
+  const inTF = (ev: EconomicEvent): boolean => {
+    if (econTF === "all" || !ev.time) return true
+    const t = new Date(ev.time).getTime()
+    if (isNaN(t)) return true
+    if (t < now.getTime() - 24 * 60 * 60 * 1000) return false // skip events older than yesterday
+    if (econTF === "today") return t <= endOfToday.getTime()
+    if (econTF === "week")  return t <= endOfWeek.getTime()
+    if (econTF === "month") return t <= endOfMonth.getTime()
+    return true
+  }
+
+  // Filter by timeframe → then high-impact first, then by time
+  const filteredEvents = economic.filter(inTF)
+  const sortedEvents = [...filteredEvents].sort((a, b) => {
     const aImp = a.impact === "high" || a.impact === "3" ? 0 : a.impact === "medium" || a.impact === "2" ? 1 : 2
     const bImp = b.impact === "high" || b.impact === "3" ? 0 : b.impact === "medium" || b.impact === "2" ? 1 : 2
     if (aImp !== bImp) return aImp - bImp
     return (a.time || "").localeCompare(b.time || "")
-  }).slice(0, 20)
+  }).slice(0, 30)
+
+  // Count per timeframe (for chip labels)
+  const tfCounts = (Object.keys(TF_LABELS) as EconTF[]).reduce((acc, tf) => {
+    if (tf === "all") {
+      acc[tf] = economic.length
+    } else {
+      acc[tf] = economic.filter(ev => {
+        if (!ev.time) return false
+        const t = new Date(ev.time).getTime()
+        if (isNaN(t) || t < now.getTime() - 24 * 60 * 60 * 1000) return false
+        if (tf === "today") return t <= endOfToday.getTime()
+        if (tf === "week")  return t <= endOfWeek.getTime()
+        if (tf === "month") return t <= endOfMonth.getTime()
+        return false
+      }).length
+    }
+    return acc
+  }, {} as Record<EconTF, number>)
 
   return (
     <div className="space-y-4">
@@ -402,10 +460,13 @@ function MacroDashboard({ snapshot, loadingSnap, economic, macroNews }: MacroDas
         </div>
       ) : snapshot ? (
         <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
-          <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between">
+          <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
-              <Activity className="w-4 h-4 text-[#00D8EE]" />
+              <Activity className={cn("w-4 h-4 text-[#00D8EE]", loadingSnap && "animate-pulse")} />
               <span className="text-sm font-semibold text-white">Macro Risk Snapshot</span>
+              <span className="text-[10px] text-gray-600">
+                · Auto-refresh 5m · Updated {formatDistanceToNow(snapshot.scannedAt, { addSuffix: true })}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500">Overall:</span>
@@ -447,12 +508,36 @@ function MacroDashboard({ snapshot, loadingSnap, economic, macroNews }: MacroDas
 
       {/* ── Economic Calendar (full) ─────────────────────────────── */}
       <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
-        <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between">
+        <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-yellow-400" />
             <span className="text-sm font-semibold text-white">Economic Calendar</span>
+            <span className="text-[10px] text-gray-500">· high-impact first</span>
           </div>
-          <span className="text-[10px] text-gray-500">High-impact first · next 30 days</span>
+          {/* Timeframe filter chips */}
+          <div className="flex items-center gap-1">
+            {(Object.keys(TF_LABELS) as EconTF[]).map(tf => {
+              const active = econTF === tf
+              const count = tfCounts[tf]
+              return (
+                <button
+                  key={tf}
+                  onClick={() => setEconTF(tf)}
+                  disabled={count === 0 && !active}
+                  className={cn(
+                    "px-2 py-0.5 rounded text-[10px] font-semibold transition-colors",
+                    active
+                      ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/40"
+                      : count > 0
+                      ? "text-gray-400 hover:text-white border border-transparent"
+                      : "text-gray-700 border border-transparent cursor-not-allowed",
+                  )}
+                >
+                  {TF_LABELS[tf]} <span className="text-[9px] opacity-70">({count})</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
         {sortedEvents.length === 0 ? (
           <div className="text-center py-6 text-gray-500 text-sm">No upcoming events</div>
