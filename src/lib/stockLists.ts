@@ -148,29 +148,50 @@ export const NYSE_INTERESTING: string[] = [
 ]
 
 // ─── Speculative / Momentum (NASDAQ Composite small-mid cap) ─────────────────
-// ~60 ตัว · เน้นกระแส momentum · ไม่ใช่ pump-and-dump
+// ~95 ตัว · เน้นกระแส momentum + Wall Street จับตา · ไม่ใช่ pump-and-dump
 export const SPECULATIVE_MOMENTUM: string[] = [
   // AI / Quantum (hottest)
   "IONQ", "RGTI", "QBTS", "QUBT", "SOUN", "BBAI", "AI", "TEM", "APP",
+  // AI Software / Cybersecurity (Wall Street darling, real ARR)
+  "NET", "S", "GTLB", "ESTC", "CFLT", "MNDY", "PATH", "DOCN",
+  // Robotics / Autonomous / LiDAR (real product, mega-trend)
+  "SYM", "MBLY", "AUR", "LAZR", "OUST",
   // Tech infra / Data center
   "NBIS", "CRWV", "IREN", "APLD", "MSTR", "VRT",
   // Defense / Space
   "RKLB", "ASTS", "ACHR", "JOBY", "LUNR", "VOYG", "KTOS", "ONDS", "RCAT",
   "AVAV", "AMPX", "BWXT", "SATS", "FLY",
+  // Satellite / Earth imaging (Wall Street watching)
+  "PL", "BKSY", "IRDM",
   // Nuclear / Clean Energy
   "OKLO", "NNE", "SMR", "UEC", "NXE", "UUUU",
-  // EV / Auto
-  "RIVN", "LCID", "NIO", "XPEV",
-  // Fintech / Consumer momentum
-  "SOFI", "HOOD", "HIMS", "AFRM", "OSCR",
-  // Bio momentum
-  "VKTX", "RXRX", "AKRO", "SMMT",
-  // Crypto miners
-  "MARA", "RIOT", "CLSK", "HUT", "BITF",
+  // EV / Auto + Charging infra
+  "RIVN", "LCID", "NIO", "XPEV", "CHPT", "EVGO", "BE", "PLUG",
+  // Fintech / Consumer momentum (Wall Street darling)
+  "SOFI", "HOOD", "HIMS", "AFRM", "OSCR", "UPST", "TOST", "BILL",
+  // Consumer / Internet momentum (big IPO + brand power)
+  "RDDT", "CART", "LYFT", "CVNA", "DUOL", "CELH", "ELF", "BIRK",
+  // Bio momentum + Gene editing leaders
+  "VKTX", "RXRX", "AKRO", "SMMT", "CRSP", "NTLA", "EDIT", "GRAL", "TDOC",
+  // Crypto miners + crypto-adjacent
+  "MARA", "RIOT", "CLSK", "HUT", "BITF", "WULF", "CIFR", "GLXY",
   // Tech small-mid + materials
   "POET", "EOSE", "AEHR", "AXTI", "LWLG", "AAOI", "WOLF", "NOK", "BB",
   "ARQT", "PLAB", "QS", "SLDP", "ASTI", "DGXX", "KEEL", "LFLY",
   "SHOP", "ROKU", "DKNG", "PINS", "SNAP",
+  // AI Chip Ecosystem (Wall Street tracked — Controllers/Packaging/Memory/Edge)
+  "RMBS", "SIMO", "ATOM", "FORM", "CAMT", "MRAM", "GSIT", "NVEC", "NLST",
+  "QUIK", "CEVA", "SYNA", "SGH", "SKYT", "POWI",
+  // Semi Equipment / Advanced Packaging (small-mid)
+  "ONTO", "NVTS", "ASX", "VIAV", "COHR", "SNDK",
+  // Quantum-resistant crypto / Micro-cap cyber
+  "LAES", "WKEY",
+  // Autonomous (China) / AI Health / Optics
+  "WRD", "MDAI", "LPTH",
+  // Critical Minerals (rare earth + lithium)
+  "LAC", "MP",
+  // Bio (psychedelics) / Commercial Space
+  "ATAI", "RDW",
 ]
 
 // ─── Combined universe (for "all" if needed) ─────────────────────────────────
@@ -195,13 +216,18 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
   semi: {
     label: "Semiconductor",
     emoji: "🔌",
-    // จาก image semi.jpg + เพิ่มตัวที่ขาด
+    // จาก image semi.jpg + AI ecosystem image + เพิ่มตัวที่ขาด
     tickers: [
       "NVDA", "TSM", "AVGO", "MU", "AMD", "ASML", "INTC", "LRCX", "AMAT",
       "ARM", "QCOM", "KLAC", "SNDK", "ADI", "STX", "MRVL", "WDC", "CDNS",
       "SNPS", "MPWR", "LITE", "ON", "SMCI", "TTMI", "AMKR", "AAOI", "TRMB",
       "APLD", "QS", "WOLF", "AEHR", "POET", "SGML", "TE", "SLDP", "ASTI",
       "NXPI", "MCHP", "SWKS", "QRVO", "TER", "ENPH", "GFS",
+      // AI Chip Ecosystem additions
+      "RMBS", "SIMO", "ATOM", "FORM", "CAMT", "MRAM", "GSIT", "NVEC", "NLST",
+      "QUIK", "CEVA", "SYNA", "SGH", "SKYT", "POWI",
+      // Semi Eq / Advanced Packaging
+      "ONTO", "NVTS", "ASX", "VIAV", "COHR",
     ],
   },
   datacenter: {
@@ -241,7 +267,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     tickers: [
       "GE", "RTX", "NOC", "RKLB", "TDG", "LHX", "ASTS", "SATS", "JOBY",
       "AVAV", "FLY", "LUNR", "VOYG", "AMPX", "SES", "SPCE", "UAVS", "DFLI",
-      "BA", "ACHR",
+      "BA", "ACHR", "RDW", "PL", "BKSY", "IRDM",
     ],
   },
   pharma: {
@@ -298,7 +324,46 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
   crypto: {
     label: "Crypto-Related",
     emoji: "₿",
-    tickers: ["COIN", "MSTR", "MARA", "RIOT", "CLSK", "HUT", "BITF", "IBIT", "FBTC"],
+    tickers: ["COIN", "MSTR", "MARA", "RIOT", "CLSK", "HUT", "BITF", "IBIT", "FBTC",
+              "WULF", "CIFR", "GLXY", "LAES"],
+  },
+  ai_ecosystem: {
+    label: "AI Ecosystem",
+    emoji: "🧠",
+    // จาก image AI Ecosystem.jpg — Controllers/Packaging/Memory/Edge AI/AI Infra/Power/Future-Tech
+    tickers: [
+      // Controllers
+      "RMBS", "SIMO", "ATOM",
+      // Packaging / Testing
+      "AMKR", "FORM", "CAMT", "ONTO",
+      // Next-Gen Memory
+      "MRAM", "GSIT", "NVEC", "NLST", "SNDK",
+      // Edge AI
+      "QUIK", "CEVA", "SYNA",
+      // AI Infra
+      "SGH", "SKYT", "NBIS", "CRWV",
+      // Power
+      "POWI", "NVTS", "VRT",
+      // Future-Tech (silicon photonics / III-V)
+      "LWLG", "AXTI", "POET", "LITE", "COHR", "VIAV",
+    ],
+  },
+  cybersecurity: {
+    label: "Cybersecurity",
+    emoji: "🔐",
+    tickers: [
+      "CRWD", "PANW", "FTNT", "ZS", "S", "NET", "OKTA", "QLYS",
+      "RBRK", "TENB", "VRNS", "CYBR", "LAES", "WKEY",
+    ],
+  },
+  critical_minerals: {
+    label: "Critical Minerals",
+    emoji: "⛏️",
+    // Rare earth + lithium + uranium (Wall Street strategic-resource plays)
+    tickers: [
+      "MP", "LAC", "ALB", "SQM", "LTHM", "PLL", "SGML",
+      "UEC", "UUUU", "NXE", "DNN", "URG",
+    ],
   },
 }
 

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useCallback, useEffect, useMemo } from "react"
-import { RefreshCw, ScanLine, TrendingUp, ChevronLeft, ChevronRight, Filter } from "lucide-react"
+import { RefreshCw, ScanLine, TrendingUp, ChevronLeft, ChevronRight, Filter, Search, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   scanMarket,
@@ -11,7 +11,7 @@ import {
   type CategoryKey,
   type IndexQuote,
 } from "@/lib/marketOverview"
-import { SECTOR_GROUPS, getSectorsForTicker } from "@/lib/stockLists"
+import { SECTOR_GROUPS } from "@/lib/stockLists"
 import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { IndicesBar } from "@/components/market/IndicesBar"
@@ -20,12 +20,26 @@ import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import toast from "react-hot-toast"
 
-const CATEGORIES: { key: CategoryKey; label: string; emoji: string; description: string }[] = [
-  { key: "sp500",       label: "S&P 500",     emoji: "🇺🇸", description: "S&P 500 large caps · 500 stocks · ~12 min" },
-  { key: "etf",         label: "ETF",         emoji: "📊", description: "Sector + Thematic · ~35 funds · ~1 min" },
-  { key: "nyse",        label: "NYSE",        emoji: "🌍", description: "Intl ADRs (China/Japan/EM) · ~40 · ~1 min" },
-  { key: "speculative", label: "Speculative", emoji: "🔥", description: "Momentum small-mid cap · ~60 · ~2 min" },
+// Estimate scan time: ~2 sec per ticker (Yahoo proxy), rounded up
+function estimateScanMin(count: number): string {
+  const min = Math.max(1, Math.ceil((count * 2) / 60))
+  return `~${min} min`
+}
+
+const CATEGORY_META: { key: CategoryKey; label: string; emoji: string; baseDesc: string }[] = [
+  { key: "sp500",       label: "S&P 500",     emoji: "🇺🇸", baseDesc: "S&P 500 large caps" },
+  { key: "etf",         label: "ETF",         emoji: "📊", baseDesc: "Sector + Thematic funds" },
+  { key: "nyse",        label: "NYSE",        emoji: "🌍", baseDesc: "Intl ADRs (China/Japan/EM)" },
+  { key: "speculative", label: "Speculative", emoji: "🔥", baseDesc: "Momentum small-mid cap" },
 ]
+
+const CATEGORIES = CATEGORY_META.map(c => {
+  const count = STOCK_UNIVERSE[c.key].length
+  return {
+    ...c,
+    description: `${c.baseDesc} · ${count} stocks · ${estimateScanMin(count)}`,
+  }
+})
 
 const DEFAULT_CATEGORY: CategoryKey = "speculative"
 
@@ -79,6 +93,7 @@ export default function MarketPage() {
   const [filter, setFilter] = useState<FilterKey>("all")
   const [sectorKey, setSectorKey] = useState<string>("all")        // sector group
   const [techFilter, setTechFilter] = useState<TechFilterKey>("none")
+  const [search, setSearch] = useState("")                          // ticker search
   const [page, setPage] = useState(1)
   const [stocks, setStocks] = useState<MarketScanResult[]>([])
   const [indices, setIndices] = useState<IndexQuote[]>([])
@@ -148,11 +163,11 @@ export default function MarketPage() {
   }
 
   // Reset to page 1 when any filter changes
-  useEffect(() => { setPage(1) }, [filter, sectorKey, techFilter])
+  useEffect(() => { setPage(1) }, [filter, sectorKey, techFilter, search])
 
   const progressPct = progress.total > 0 ? (progress.done / progress.total) * 100 : 0
 
-  // Apply all filters (sector → signal → tech)
+  // Apply all filters (sector → search → signal → tech)
   const filtered = useMemo(() => {
     let arr = stocks
 
@@ -162,18 +177,27 @@ export default function MarketPage() {
       arr = arr.filter(s => allowed.has(s.ticker))
     }
 
-    // 2. Signal filter
+    // 2. Search filter (ticker or company name, case-insensitive)
+    const q = search.trim().toUpperCase()
+    if (q) {
+      arr = arr.filter(s =>
+        s.ticker.includes(q) ||
+        (s.companyName && s.companyName.toUpperCase().includes(q))
+      )
+    }
+
+    // 3. Signal filter
     if (filter === "buy")        arr = arr.filter(s => s.signal === "BUY" || s.signal === "STRONG BUY")
     else if (filter === "strong_buy") arr = arr.filter(s => s.signal === "STRONG BUY")
     else if (filter === "high_conf")  arr = arr.filter(s => s.confidence === "HIGH")
 
-    // 3. Technical filter
+    // 4. Technical filter
     if (techFilter !== "none") {
       arr = arr.filter(s => matchTechFilter(s, techFilter))
     }
 
     return arr
-  }, [stocks, filter, sectorKey, techFilter])
+  }, [stocks, filter, sectorKey, techFilter, search])
 
   // Tech filter counts (computed from stocks after sector + signal filter, before tech filter)
   const techCounts = useMemo(() => {
@@ -270,8 +294,28 @@ export default function MarketPage() {
         </div>
       )}
 
-      {/* ── Sector Tabs (Rocket Tool style) ──────────────────────── */}
+      {/* ── Sector Tabs (Rocket Tool style) + Search ─────────────── */}
       <div className="bg-[#0C1628] border border-[#1A2E52] rounded-xl p-2 mb-2 hsr-card">
+        {/* Search box */}
+        <div className="relative mb-2">
+          <Search className="w-3.5 h-3.5 text-gray-500 absolute left-2.5 top-1/2 -translate-y-1/2" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหา ticker หรือชื่อบริษัท (เช่น NVDA, Tesla, Quantum)…"
+            className="w-full bg-[#0A1424] border border-[#1A2E52] rounded-lg pl-8 pr-8 py-1.5 text-xs text-gray-200 placeholder-gray-600 focus:border-[#00C2D4]/50 focus:outline-none"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        {/* Sector tabs */}
         <div className="flex flex-wrap gap-1.5">
           <button
             onClick={() => setSectorKey("all")}
@@ -282,22 +326,34 @@ export default function MarketPage() {
                 : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
             )}
           >
-            🌐 ทั้งหมด
+            🌐 ทั้งหมด <span className="text-[10px] text-gray-600">({stocks.length})</span>
           </button>
-          {Object.entries(SECTOR_GROUPS).map(([key, group]) => (
-            <button
-              key={key}
-              onClick={() => setSectorKey(key)}
-              className={cn(
-                "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
-                sectorKey === key
-                  ? "bg-[#00C2D4]/15 text-[#00D8EE] border border-[#00C2D4]/40"
-                  : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
-              )}
-            >
-              {group.emoji} {group.label}
-            </button>
-          ))}
+          {Object.entries(SECTOR_GROUPS).map(([key, group]) => {
+            const allowed = new Set(group.tickers)
+            const count = stocks.filter(s => allowed.has(s.ticker)).length
+            const isActive = sectorKey === key
+            return (
+              <button
+                key={key}
+                onClick={() => setSectorKey(key)}
+                disabled={count === 0 && !isActive}
+                className={cn(
+                  "px-3 py-1 rounded-lg text-xs font-medium transition-colors",
+                  isActive
+                    ? "bg-[#00C2D4]/15 text-[#00D8EE] border border-[#00C2D4]/40"
+                    : count > 0
+                    ? "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent"
+                    : "text-gray-700 border border-transparent cursor-not-allowed",
+                )}
+              >
+                {group.emoji} {group.label}{" "}
+                <span className={cn(
+                  "text-[10px]",
+                  isActive ? "text-[#00D8EE]/70" : "text-gray-600"
+                )}>({count})</span>
+              </button>
+            )
+          })}
         </div>
       </div>
 
