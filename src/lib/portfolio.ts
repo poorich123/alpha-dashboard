@@ -175,6 +175,44 @@ export function calculatePnL(
   return { unrealizedPnL, unrealizedPnLPercent, totalValue }
 }
 
+// Alpha Score — 4 weighted dimensions (0-25 each, total 0-100)
+function computeAlphaScore(m: {
+  positionCount: number
+  totalPnLPercent: number
+  sectorCount: number
+  winRate: number       // 0..1
+  cashWeight: number    // 0..100 (% of portfolio in cash)
+}): number {
+  // 1. Diversification (positions count): peak at 12-18
+  const diversification = m.positionCount === 0 ? 0
+    : m.positionCount >= 10 && m.positionCount <= 20 ? 25
+    : m.positionCount >= 5 ? 18
+    : m.positionCount >= 3 ? 12
+    : 6
+
+  // 2. Performance (total return %): scale around 0..15%
+  const performance = m.totalPnLPercent >= 15 ? 25
+    : m.totalPnLPercent >= 5 ? 20
+    : m.totalPnLPercent >= 0 ? 15
+    : m.totalPnLPercent >= -5 ? 8
+    : 2
+
+  // 3. Sector diversity: 5+ sectors = ideal
+  const sectors = m.sectorCount >= 5 ? 25
+    : m.sectorCount >= 3 ? 18
+    : m.sectorCount >= 2 ? 12
+    : m.sectorCount >= 1 ? 6
+    : 0
+
+  // 4. Risk control: blend of win rate + cash buffer (5-25% cash ideal)
+  const goodCash = m.cashWeight >= 5 && m.cashWeight <= 25
+  const winScore = m.winRate >= 0.7 ? 15 : m.winRate >= 0.5 ? 12 : m.winRate >= 0.4 ? 8 : 4
+  const cashScore = goodCash ? 10 : m.cashWeight > 50 ? 4 : 6
+  const risk = Math.min(25, winScore + cashScore)
+
+  return Math.round(diversification + performance + sectors + risk)
+}
+
 export function calculatePortfolioStats(
   positions: Position[],
   cashUSD: number,
@@ -212,6 +250,21 @@ export function calculatePortfolioStats(
   const cashWeight = totalValue > 0 ? (cashUSD / totalValue) * 100 : 100
   allocation["cash"] = cashWeight
 
+  // ── Compute Alpha Score (0-100) from real portfolio metrics ────────────
+  // 4 dimensions × 25 points each = 100 max
+  const alphaScore = computeAlphaScore({
+    positionCount: activePositions.length,
+    totalPnLPercent,
+    sectorCount: Object.keys(sectorAllocation).length,
+    winRate: activePositions.length > 0
+      ? activePositions.filter(p => {
+          const { unrealizedPnLPercent } = calculatePnL(p)
+          return unrealizedPnLPercent > 0
+        }).length / activePositions.length
+      : 0,
+    cashWeight,
+  })
+
   return {
     totalValue,
     totalCost,
@@ -226,7 +279,7 @@ export function calculatePortfolioStats(
     positions: activePositions,
     allocation,
     sectorAllocation,
-    alphaScore: 0,
+    alphaScore,
   }
 }
 

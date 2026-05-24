@@ -8,7 +8,7 @@ import { MetricCard, SkeletonCard } from "@/components/ui/MetricCard"
 import { PriceChange, PercentBadge } from "@/components/ui/PriceChange"
 import { usePortfolioStore } from "@/store/portfolioStore"
 import { useAlertStore } from "@/store/alertStore"
-import { getMultipleQuotes, getMarketNews, getEconomicCalendar, getUsdThbRate, getEarningsCalendar } from "@/lib/finnhub"
+import { getMultipleQuotes, getMarketNews, getEconomicCalendar, getUsdThbRate, getEarningsCalendar, getEarnings } from "@/lib/finnhub"
 import { generateMarketBrief } from "@/lib/claude"
 import type { Quote, NewsItem, EarningsCalendarItem } from "@/types"
 import { format, addDays } from "date-fns"
@@ -68,12 +68,35 @@ export default function DashboardPage() {
       setUsdThbRate(rate)
       updateSettings({ totalCashTHB: settings.totalCashUSD * rate })
 
-      // Load upcoming earnings
+      // Load upcoming earnings (60 days window + per-ticker fallback for small caps)
       const from = format(new Date(), "yyyy-MM-dd")
-      const to = format(addDays(new Date(), 14), "yyyy-MM-dd")
+      const to = format(addDays(new Date(), 60), "yyyy-MM-dd")
       const earningsData = await getEarningsCalendar(from, to)
       const myTickers = new Set(tickers)
-      setEarnings(earningsData.filter((e) => myTickers.has(e.symbol)).slice(0, 10))
+      const fromBulk = earningsData.filter((e) => myTickers.has(e.symbol))
+      const foundSymbols = new Set(fromBulk.map(e => e.symbol))
+      const missing = tickers.filter(t => !foundSymbols.has(t))
+
+      // Fallback: per-ticker fetch for ones missing from bulk (small caps often missing)
+      let fromFallback: typeof fromBulk = []
+      if (missing.length > 0) {
+        const BATCH = 5
+        for (let i = 0; i < missing.length; i += BATCH) {
+          const batch = missing.slice(i, i + BATCH)
+          const results = await Promise.allSettled(batch.map(t => getEarnings(t)))
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              const upcoming = r.value.filter(e => new Date(e.date) >= new Date())
+              fromFallback.push(...upcoming)
+            }
+          }
+        }
+      }
+
+      const merged = [...fromBulk, ...fromFallback]
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+        .slice(0, 10)
+      setEarnings(merged)
 
       toast.success("Data refreshed")
     } catch (err) {
@@ -132,7 +155,7 @@ export default function DashboardPage() {
     return { ...p, pnlPct, weight, bg }
   })
 
-  const alphaScore = stats?.alphaScore || 72
+  const alphaScore = stats?.alphaScore ?? 0
 
   return (
     <div className="p-4 lg:p-6 max-w-7xl mx-auto">

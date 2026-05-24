@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { RefreshCw, ExternalLink, Calendar, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { usePortfolioStore } from "@/store/portfolioStore"
-import { getMarketNews, getNews, getEarningsCalendar, getEconomicCalendar } from "@/lib/finnhub"
+import { getMarketNews, getNews, getEarningsCalendar, getEarnings, getEconomicCalendar } from "@/lib/finnhub"
 import { quickScoreSentiment, quickScoreImpact } from "@/lib/newsMonitor"
 import type { NewsItem, EarningsCalendarItem, EconomicEvent } from "@/types"
 import { format, addDays, formatDistanceToNow, parseISO } from "date-fns"
@@ -30,7 +30,7 @@ export default function NewsPage() {
     setLoading(true)
     try {
       const from = format(new Date(), "yyyy-MM-dd")
-      const to = format(addDays(new Date(), 30), "yyyy-MM-dd")
+      const to = format(addDays(new Date(), 60), "yyyy-MM-dd")
 
       const [marketNews, earningsData, econData] = await Promise.all([
         getMarketNews(),
@@ -39,8 +39,31 @@ export default function NewsPage() {
       ])
 
       setNews(marketNews.slice(0, 50))
-      setEarnings(earningsData.slice(0, 30))
       setEconomic(econData.slice(0, 20))
+
+      // Per-ticker fallback for holdings that didn't appear in bulk (small caps)
+      let mergedEarnings = earningsData
+      if (tickers.length > 0) {
+        const myTickerSet = new Set(tickers)
+        const foundInBulk = new Set(
+          earningsData.filter(e => myTickerSet.has(e.symbol)).map(e => e.symbol)
+        )
+        const missing = tickers.filter(t => !foundInBulk.has(t))
+        if (missing.length > 0) {
+          const BATCH = 5
+          for (let i = 0; i < missing.length; i += BATCH) {
+            const batch = missing.slice(i, i + BATCH)
+            const results = await Promise.allSettled(batch.map(t => getEarnings(t)))
+            for (const r of results) {
+              if (r.status === "fulfilled") {
+                const upcoming = r.value.filter(e => new Date(e.date) >= new Date())
+                mergedEarnings = [...mergedEarnings, ...upcoming]
+              }
+            }
+          }
+        }
+      }
+      setEarnings(mergedEarnings)
 
       // ── Fetch news for ALL holdings (parallel, batch 5) ──
       if (tickers.length > 0) {
@@ -85,8 +108,13 @@ export default function NewsPage() {
     return true
   })
 
-  const myEarnings = earnings.filter((e) => myTickerSet.has(e.symbol))
-  const allEarnings = earnings.filter((e) => !myTickerSet.has(e.symbol)).slice(0, 10)
+  // Dedupe + sort upcoming earnings by date
+  const dedupedEarnings = Array.from(
+    new Map(earnings.map(e => [`${e.symbol}-${e.date}`, e])).values()
+  ).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+
+  const myEarnings = dedupedEarnings.filter((e) => myTickerSet.has(e.symbol))
+  const allEarnings = dedupedEarnings.filter((e) => !myTickerSet.has(e.symbol)).slice(0, 30)
 
   return (
     <div className="p-4 lg:p-6">
@@ -131,6 +159,12 @@ export default function NewsPage() {
               loading={loading}
               expanded={expandedTickers}
               setExpanded={setExpandedTickers}
+            />
+          ) : filter === "earnings" ? (
+            <EarningsCalendarMain
+              earnings={dedupedEarnings}
+              myTickerSet={myTickerSet}
+              loading={loading}
             />
           ) : (
             <>
@@ -290,6 +324,125 @@ export default function NewsPage() {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Earnings Calendar — Main Content (Earnings tab) ────────────────────────
+//
+// Groups upcoming earnings by week, highlights "my holdings" rows.
+// Pulls from full 60-day window + per-ticker fallback (loaded on mount).
+//
+interface EarningsCalendarProps {
+  earnings: EarningsCalendarItem[]
+  myTickerSet: Set<string>
+  loading: boolean
+}
+
+function EarningsCalendarMain({ earnings, myTickerSet, loading }: EarningsCalendarProps) {
+  if (loading && earnings.length === 0) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <InlineSpinner className="text-[#00D8EE] w-6 h-6" />
+        <span className="ml-2 text-gray-400">Loading earnings calendar…</span>
+      </div>
+    )
+  }
+
+  // Only upcoming earnings
+  const now = Date.now()
+  const upcoming = earnings.filter(e => new Date(e.date).getTime() >= now - 24 * 60 * 60 * 1000)
+
+  if (upcoming.length === 0) {
+    return <div className="text-center py-12 text-gray-500">No upcoming earnings in the next 60 days</div>
+  }
+
+  // Group by ISO week (YYYY-Www)
+  const byWeek: Record<string, EarningsCalendarItem[]> = {}
+  for (const e of upcoming) {
+    const d = new Date(e.date)
+    // Week start = Monday
+    const monday = new Date(d)
+    monday.setDate(d.getDate() - ((d.getDay() + 6) % 7))
+    const key = format(monday, "yyyy-MM-dd")
+    if (!byWeek[key]) byWeek[key] = []
+    byWeek[key].push(e)
+  }
+
+  const weeks = Object.keys(byWeek).sort()
+
+  return (
+    <div className="space-y-4">
+      <div className="text-xs text-gray-500 uppercase tracking-wide mb-2">
+        {upcoming.length} upcoming earnings · next 60 days · sorted by week
+      </div>
+
+      {weeks.map(weekKey => {
+        const weekStart = new Date(weekKey)
+        const weekEnd = new Date(weekStart)
+        weekEnd.setDate(weekStart.getDate() + 6)
+        const items = byWeek[weekKey]
+
+        return (
+          <div key={weekKey} className="bg-[#0C1628] border border-[#1A2E52] rounded-xl overflow-hidden">
+            <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-[#00D8EE]" />
+                <span className="text-sm font-semibold text-white">
+                  Week of {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d")}
+                </span>
+              </div>
+              <span className="text-[10px] text-gray-500">{items.length} reports</span>
+            </div>
+
+            <div className="divide-y divide-[#1A2E52]/60">
+              {items.map((e, i) => {
+                const isHolding = myTickerSet.has(e.symbol)
+                const daysUntil = Math.ceil((new Date(e.date).getTime() - now) / (1000 * 60 * 60 * 24))
+
+                return (
+                  <div
+                    key={`${e.symbol}-${e.date}-${i}`}
+                    className={cn(
+                      "px-4 py-2.5 flex items-center justify-between hover:bg-[#1A2E52]/30 transition-colors",
+                      isHolding && "bg-[#00C2D4]/[0.04] border-l-2 border-l-[#00C2D4]/60"
+                    )}
+                  >
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="text-sm font-bold text-white w-16 flex-shrink-0">{e.symbol}</div>
+                      {isHolding && (
+                        <span className="text-[9px] font-bold bg-[#00C2D4]/20 text-[#00D8EE] px-1.5 py-0.5 rounded border border-[#00C2D4]/40">
+                          HOLDING
+                        </span>
+                      )}
+                      <div className="text-xs text-gray-500">
+                        Q{e.quarter} {e.year} · {e.hour || "AMC"}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 flex-shrink-0">
+                      {e.epsEstimate != null && (
+                        <span className="text-[10px] text-gray-500">
+                          Est ${e.epsEstimate}
+                        </span>
+                      )}
+                      <span className="text-xs text-gray-400 font-mono w-20 text-right">{e.date}</span>
+                      <span className={cn(
+                        "text-[10px] font-semibold px-1.5 py-0.5 rounded w-10 text-center",
+                        daysUntil <= 3 ? "bg-red-500/20 text-red-400" :
+                        daysUntil <= 7 ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-gray-500/20 text-gray-400"
+                      )}>
+                        {daysUntil}d
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
