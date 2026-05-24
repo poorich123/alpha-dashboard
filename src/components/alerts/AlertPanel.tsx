@@ -5,11 +5,45 @@ import { useAlertStore } from "@/store/alertStore"
 import type { NewsAlert } from "@/store/alertStore"
 import {
   Bell, X, ChevronDown, ChevronUp, TrendingUp, TrendingDown,
-  Minus, Zap, Clock, ExternalLink, CheckCheck, Trash2,
+  Minus, Zap, Clock, ExternalLink, CheckCheck, Trash2, Volume2, VolumeX,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
+import toast from "react-hot-toast"
 import { getDrawCard, getRoundIcon, PAGE_CHARACTERS } from "@/components/hsr/characters"
+
+// ── Web Audio beep (no asset file needed) ──────────────────────────────────
+// Plays a 2-note "ding-ding" using OscillatorNode. Browser requires that the
+// user has interacted with the page at least once (autoplay policy) — once
+// the user clicks anywhere, this works for all subsequent alerts.
+let audioCtx: AudioContext | null = null
+function playAlertBeep() {
+  try {
+    if (typeof window === "undefined") return
+    if (!audioCtx) {
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+      audioCtx = new Ctx()
+    }
+    const ctx = audioCtx
+    const playNote = (freq: number, when: number, dur: number) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.type = "sine"
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.001, ctx.currentTime + when)
+      gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + when + 0.02)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + when + dur)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(ctx.currentTime + when)
+      osc.stop(ctx.currentTime + when + dur + 0.05)
+    }
+    playNote(880, 0,    0.18)  // A5
+    playNote(1175, 0.2, 0.22)  // D6
+  } catch {
+    // browser blocked / no audio support — silent
+  }
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -156,28 +190,75 @@ function AlertCard({ alert, onRead }: { alert: NewsAlert; onRead: (id: string) =
 
 export function AlertPanel() {
   const {
-    alerts, unreadCount, panelOpen, isMonitoring,
-    setPanelOpen, markRead, markAllRead, clearAlerts, loadFromStorage
+    alerts, unreadCount, panelOpen, isMonitoring, soundEnabled,
+    setPanelOpen, markRead, markAllRead, clearAlerts, loadFromStorage, setSoundEnabled,
   } = useAlertStore()
 
   const panelRef  = useRef<HTMLDivElement>(null)
   const bellRef   = useRef<HTMLButtonElement>(null)
   const [shaking, setShaking] = useState(false)
   const prevUnread = useRef(unreadCount)
+  const lastAlertedId = useRef<string | null>(null)
 
   const kafka   = PAGE_CHARACTERS.alerts
   const criticalCount = alerts.filter(a => !a.read && a.impact === "CRITICAL").length
 
   useEffect(() => { loadFromStorage() }, [loadFromStorage])
 
-  // Shake bell on new alerts
+  // Shake bell on new alerts + play sound + toast for bad alerts
   useEffect(() => {
     if (unreadCount > prevUnread.current) {
       setShaking(true)
       setTimeout(() => setShaking(false), 600)
+
+      // Find the newest alert (first in array)
+      const newest = alerts[0]
+      if (newest && newest.id !== lastAlertedId.current) {
+        const isBad = newest.sentiment === "BEARISH" &&
+                      (newest.impact === "HIGH" || newest.impact === "CRITICAL")
+        if (isBad) {
+          lastAlertedId.current = newest.id
+          if (soundEnabled) playAlertBeep()
+
+          // Toast with headline — clickable, opens panel
+          const isMacro = newest.tickers.includes("MACRO") || newest.type === "MARKET"
+          const tickerLabel = isMacro
+            ? "🌍 MACRO"
+            : newest.tickers.slice(0, 3).join(" · ")
+
+          toast.error(
+            (t) => (
+              <div
+                className="cursor-pointer flex flex-col gap-0.5"
+                onClick={() => { setPanelOpen(true); toast.dismiss(t.id) }}
+              >
+                <div className="text-[10px] font-bold text-red-300 uppercase tracking-wider">
+                  {newest.impact} · {tickerLabel}
+                </div>
+                <div className="text-xs text-white line-clamp-2 leading-snug">
+                  {newest.headline}
+                </div>
+                <div className="text-[10px] text-gray-400 mt-0.5">
+                  Click to open alerts panel
+                </div>
+              </div>
+            ),
+            {
+              duration: 8000,
+              style: {
+                background: "#0C1628",
+                border: "1px solid rgba(239, 68, 68, 0.5)",
+                color: "#fff",
+                maxWidth: "380px",
+              },
+              icon: newest.impact === "CRITICAL" ? "🚨" : "⚠️",
+            }
+          )
+        }
+      }
     }
     prevUnread.current = unreadCount
-  }, [unreadCount])
+  }, [unreadCount, alerts, soundEnabled, setPanelOpen])
 
   // Close on outside click
   useEffect(() => {
@@ -297,10 +378,10 @@ export function AlertPanel() {
         </div>
 
         {/* ── Alert actions bar ─────────────── */}
-        {alerts.length > 0 && (
-          <div className="flex items-center justify-between px-3 py-1.5 bg-[#0C1628]/50 border-b border-[#1A2E52]/50 flex-shrink-0">
-            <div className="flex gap-1">
-              {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map(level => {
+        <div className="flex items-center justify-between px-3 py-1.5 bg-[#0C1628]/50 border-b border-[#1A2E52]/50 flex-shrink-0">
+          <div className="flex gap-1">
+            {alerts.length > 0 ? (
+              (["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map(level => {
                 const count = alerts.filter(a => a.impact === level).length
                 if (!count) return null
                 return (
@@ -308,18 +389,40 @@ export function AlertPanel() {
                     {level[0]}{level.slice(1).toLowerCase()} ×{count}
                   </span>
                 )
-              })}
-            </div>
-            <div className="flex gap-1">
-              <button onClick={markAllRead} className="text-gray-600 hover:text-gray-300 p-1 rounded hover:bg-[#1A2E52]" title="Mark all read">
-                <CheckCheck className="w-3.5 h-3.5" />
-              </button>
-              <button onClick={clearAlerts} className="text-gray-600 hover:text-red-400 p-1 rounded hover:bg-red-500/10" title="Clear all">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
+              })
+            ) : (
+              <span className="text-[10px] text-gray-600">Sound alerts: BAD + HIGH/CRITICAL only</span>
+            )}
           </div>
-        )}
+          <div className="flex gap-1 items-center">
+            <button
+              onClick={() => {
+                setSoundEnabled(!soundEnabled)
+                // Play test beep if enabling
+                if (!soundEnabled) playAlertBeep()
+              }}
+              className={cn(
+                "p-1 rounded transition-colors",
+                soundEnabled
+                  ? "text-cyan-400 hover:bg-cyan-500/10"
+                  : "text-gray-600 hover:text-gray-300 hover:bg-[#1A2E52]"
+              )}
+              title={soundEnabled ? "Sound ON — click to mute" : "Muted — click to enable"}
+            >
+              {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+            </button>
+            {alerts.length > 0 && (
+              <>
+                <button onClick={markAllRead} className="text-gray-600 hover:text-gray-300 p-1 rounded hover:bg-[#1A2E52]" title="Mark all read">
+                  <CheckCheck className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={clearAlerts} className="text-gray-600 hover:text-red-400 p-1 rounded hover:bg-red-500/10" title="Clear all">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* ── Content area ──────────────────── */}
         <div className="flex-1 overflow-y-auto p-3 space-y-2">

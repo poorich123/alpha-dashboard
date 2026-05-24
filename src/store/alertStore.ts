@@ -52,6 +52,7 @@ interface AlertStore {
   isMonitoring: boolean
   unreadCount: number
   panelOpen: boolean
+  soundEnabled: boolean
   watchlistScans: Record<string, TechnicalScanResult>  // ticker → scan result
 
   addAlert: (alert: NewsAlert) => void
@@ -61,11 +62,13 @@ interface AlertStore {
   setLastChecked: (t: number) => void
   setMonitoring: (v: boolean) => void
   setPanelOpen: (v: boolean) => void
+  setSoundEnabled: (v: boolean) => void
   loadFromStorage: () => void
   setWatchlistScans: (scans: Record<string, TechnicalScanResult>) => void
 }
 
 const STORAGE_KEY = "alpha_alerts"
+const SOUND_KEY = "alpha_alerts_sound"
 const MAX_ALERTS = 50
 
 export const useAlertStore = create<AlertStore>((set, get) => ({
@@ -74,6 +77,7 @@ export const useAlertStore = create<AlertStore>((set, get) => ({
   isMonitoring: false,
   unreadCount: 0,
   panelOpen: false,
+  soundEnabled: true,
   watchlistScans: {},
 
   addAlert: (alert) => {
@@ -118,6 +122,12 @@ export const useAlertStore = create<AlertStore>((set, get) => ({
   setMonitoring: (isMonitoring) => set({ isMonitoring }),
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setWatchlistScans: (scans) => set(s => ({ watchlistScans: { ...s.watchlistScans, ...scans } })),
+  setSoundEnabled: (soundEnabled) => {
+    set({ soundEnabled })
+    if (typeof window !== "undefined") {
+      try { localStorage.setItem(SOUND_KEY, soundEnabled ? "1" : "0") } catch { /* ignore */ }
+    }
+  },
 
   loadFromStorage: () => {
     if (typeof window === "undefined") return
@@ -131,6 +141,10 @@ export const useAlertStore = create<AlertStore>((set, get) => ({
           lastChecked: data.lastChecked || Date.now() - 30 * 60 * 1000,
           unreadCount: alerts.filter((a: NewsAlert) => !a.read).length,
         })
+      }
+      const soundRaw = localStorage.getItem(SOUND_KEY)
+      if (soundRaw !== null) {
+        set({ soundEnabled: soundRaw === "1" })
       }
     } catch {
       // ignore

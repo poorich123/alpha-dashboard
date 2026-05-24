@@ -6,7 +6,7 @@ import { usePortfolioStore } from "@/store/portfolioStore"
 import { useAlertStore } from "@/store/alertStore"
 import { getUsdThbRate } from "@/lib/finnhub"
 import { isOnboarded, setOnboarded, savePositions, saveWatchlist, saveSettings } from "@/lib/portfolio"
-import { checkForAlerts } from "@/lib/newsMonitor"
+import { checkForAlerts, checkForMacroAlerts } from "@/lib/newsMonitor"
 import { runWatchlistScan, runSpeculativeScan } from "@/lib/swingScanner"
 import { loadBackup, restoreToLocalStorage } from "@/lib/backup"
 import { hasSupabaseConfigured, getSupabaseBrowser } from "@/lib/supabase/client"
@@ -169,22 +169,34 @@ function StoreInitializer() {
 
     async function runCheck() {
       const currentPositions = usePortfolioStore.getState().positions
-      if (currentPositions.length === 0) return
 
       const { lastChecked, watchlistScans, addAlert, setLastChecked, setWatchlistScans } = useAlertStore.getState()
       const watchlist = currentPositions.filter(p => p.category === "watchlist")
       const speculative = currentPositions.filter(p => p.isActive && p.category === "speculative")
 
-      // ── 1. News alerts ─────────────────────────────────────────────────
+      // ── 1a. Macro alerts (run always — independent of portfolio) ────────
       try {
-        const newAlerts = await checkForAlerts(currentPositions, lastChecked)
+        const macroAlerts = await checkForMacroAlerts(lastChecked)
         if (!cancelled) {
-          for (const alert of newAlerts) addAlert(alert)
-          setLastChecked(Date.now())
+          for (const alert of macroAlerts) addAlert(alert)
         }
       } catch { /* ignore */ }
 
       if (cancelled) return
+
+      // ── 1b. Portfolio news alerts (skip if empty portfolio) ─────────────
+      if (currentPositions.length > 0) {
+        try {
+          const newAlerts = await checkForAlerts(currentPositions, lastChecked)
+          if (!cancelled) {
+            for (const alert of newAlerts) addAlert(alert)
+          }
+        } catch { /* ignore */ }
+      }
+      setLastChecked(Date.now())
+
+      if (cancelled) return
+      if (currentPositions.length === 0) return  // skip ticker scans if empty
 
       // ── 2. Watchlist technical scan ────────────────────────────────────
       if (watchlist.length > 0) {

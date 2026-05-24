@@ -13,6 +13,22 @@ const HIGH_KW = ["earnings","beat","miss","guidance","raised","lowered","cut","a
 const MEDIUM_KW = ["partnership","contract","analyst","upgrade","downgrade","price target",
   "buyback","dividend","conference","product launch","recall","regulatory","investigation"]
 
+// Macro keywords — for market-wide bad news alerts (no specific ticker)
+export const MACRO_KEYWORDS = [
+  "fed", "fomc", "powell", "rate cut", "rate hike", "interest rate",
+  "cpi", "ppi", "pce", "inflation",
+  "gdp", "nfp", "payroll", "unemployment", "jobless",
+  "recession", "yield curve", "treasury",
+  "trump", "tariff", "china trade", "trade war",
+  "oil price", "opec", "brent", "crude", "saudi", "iran", "russia", "ukraine", "war",
+  "vix spike", "volatility",
+  "debt ceiling", "shutdown", "default",
+]
+export function isMacroHeadline(headline: string, summary = ""): boolean {
+  const hay = (headline + " " + summary).toLowerCase()
+  return MACRO_KEYWORDS.some(k => hay.includes(k))
+}
+
 const BULLISH_KW = ["beat","surge","rally","upgrade","buy","approved","wins","gain","record",
   "record high","growth","exceed","positive","breakthrough","outperform","raised guidance",
   "strong","better than","above expectations","partnership","acquisition premium"]
@@ -327,6 +343,48 @@ export async function checkForAlerts(
     }
 
     return alerts
+  } catch {
+    return []
+  }
+}
+
+// ─── Macro alerts ────────────────────────────────────────────────────────────
+//
+// Watches general market news for macro events (Fed/CPI/oil/war/etc).
+// Fires alerts for BEARISH headlines with HIGH/CRITICAL impact — no specific
+// ticker, tagged with "MACRO" as a pseudo-ticker.
+//
+export async function checkForMacroAlerts(lastChecked: number): Promise<NewsAlert[]> {
+  try {
+    const marketNews = await getMarketNews()
+    const cutoff = lastChecked / 1000
+
+    const candidates = marketNews.filter(n => {
+      if (n.datetime < cutoff) return false
+      if (!isMacroHeadline(n.headline, n.summary)) return false
+      const impact = quickScoreImpact(n.headline, n.summary)
+      const sentiment = quickScoreSentiment(n.headline, n.summary)
+      return (impact === "HIGH" || impact === "CRITICAL") && sentiment === "BEARISH"
+    })
+
+    if (candidates.length === 0) return []
+
+    return candidates.slice(0, 3).map((n): NewsAlert => ({
+      id: `macro-${n.id}-${Date.now()}`,
+      timestamp: Date.now(),
+      tickers: ["MACRO"],
+      headline: n.headline,
+      source: n.source,
+      url: n.url,
+      impact: quickScoreImpact(n.headline, n.summary),
+      sentiment: "BEARISH",
+      type: "MARKET",
+      portfolioAssessment: `Market-wide macro risk — affects broad indices and risk-on sectors. Monitor portfolio for correlation.`,
+      immediateAction: "Review Macro Risk dashboard + consider hedging or reducing risk exposure.",
+      swingSetups: [],
+      read: false,
+      articleId: n.id,
+    }))
   } catch {
     return []
   }
