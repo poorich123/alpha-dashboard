@@ -212,6 +212,8 @@ export const SPECULATIVE_MOMENTUM: string[] = [
   "LMND",
   // AI Infra pivot + Crypto-to-AI hosting (CoreScientific HOT)
   "CORZ", "WGS",
+  // Data center power equipment (AI infrastructure boom)
+  "FPS",
   // Semi mid-cap leaders + advanced materials
   "VSH", "ACLS", "ENTG", "OLED",
   // Fiber networking (AI data center fiber)
@@ -267,7 +269,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
     tickers: [
       "DELL", "ANET", "STX", "MRVL", "CRWV", "ALAB", "NBIS", "HPE", "PSTG",
       "SMCI", "IREN", "CLSK", "APLD", "VRT", "ETN", "GEV", "VST", "CEG",
-      "DLR", "EQIX", "AMT", "CRDO", "CORZ", "CLFD",
+      "DLR", "EQIX", "AMT", "CRDO", "CORZ", "CLFD", "FPS",
     ],
   },
   software: {
@@ -383,7 +385,7 @@ export const SECTOR_GROUPS: Record<string, { label: string; emoji: string; ticke
       // AI Infra
       "SGH", "SKYT", "NBIS", "CRWV", "CRDO", "ALAB",
       // Power
-      "POWI", "NVTS", "VRT",
+      "POWI", "NVTS", "VRT", "FPS",
       // Future-Tech (silicon photonics / III-V)
       "LWLG", "AXTI", "POET", "LITE", "COHR", "VIAV",
     ],
