@@ -5,7 +5,7 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, Target, Shield } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { PercentBadge } from "@/components/ui/PriceChange"
 import { usePortfolioStore } from "@/store/portfolioStore"
-import type { Position } from "@/types"
+import { type Position, inferStrategy } from "@/types"
 import { calculatePnL } from "@/lib/portfolio"
 import { differenceInDays, parseISO } from "date-fns"
 import toast from "react-hot-toast"
@@ -63,9 +63,10 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
               </div>
             )}
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-bold">{p.ticker}</span>
                 <PercentBadge value={unrealizedPnLPercent} />
+                <StrategyBadge strategy={p.strategy ?? inferStrategy(p.category)} />
               </div>
               <div className="text-xs text-gray-500">{p.companyName} • {p.sector}</div>
             </div>
@@ -188,5 +189,28 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
         </div>
       )}
     </div>
+  )
+}
+
+// ── Strategy badge ───────────────────────────────────────────────────────────
+//
+// Compact pill showing how this position is managed:
+//   DCA   → long-term, accumulate at Fibonacci retracements
+//   SWING → short-term, trade Pivot Point S/R
+//   SPEC  → high-risk momentum, no fixed levels
+//
+function StrategyBadge({ strategy }: { strategy: "dca" | "swing" | "spec" }) {
+  const cfg = strategy === "dca"
+    ? { label: "DCA",   color: "text-amber-300 bg-amber-500/15 border-amber-500/40",
+        tip: "Long-term DCA · accumulate at Fibonacci 38.2 / 50 / 61.8" }
+    : strategy === "swing"
+    ? { label: "SWING", color: "text-cyan-300 bg-cyan-500/15 border-cyan-500/40",
+        tip: "Short-term swing · bounce at Pivot S1, sell at R1/R2" }
+    : { label: "SPEC",  color: "text-fuchsia-300 bg-fuchsia-500/15 border-fuchsia-500/40",
+        tip: "Speculative momentum · high risk · no fixed entry/exit" }
+  return (
+    <span title={cfg.tip} className={`text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border ${cfg.color}`}>
+      {cfg.label}
+    </span>
   )
 }

@@ -1,9 +1,17 @@
+// Trading strategy — how to manage this position
+// - "dca":  Long-term DCA at Fibonacci retracement levels (38.2 / 50 / 61.8)
+// - "swing": Short-term swing trade at Pivot Point S/R
+// - "spec":  High-risk speculative momentum (no fixed entry rules)
+// Optional — falls back to inferring from category if not set.
+export type TradingStrategy = "dca" | "swing" | "spec"
+
 export interface Position {
   id: string
   ticker: string
   companyName: string
   logoUrl: string
   category: "core" | "defensive" | "satellite" | "speculative" | "etf" | "watchlist"
+  strategy?: TradingStrategy  // optional; defaults inferred from category
   shares: number
   avgCost: number
   currentPrice: number
@@ -22,6 +30,13 @@ export interface Position {
   low52w?: number
   peRatio?: number
   marketCap?: number
+}
+
+// Infer default strategy from category when Position.strategy is not set
+export function inferStrategy(category: Position["category"]): TradingStrategy {
+  if (category === "speculative") return "spec"
+  if (category === "satellite") return "swing"
+  return "dca"  // core, defensive, etf → long-term DCA default
 }
 
 export interface WatchlistItem {

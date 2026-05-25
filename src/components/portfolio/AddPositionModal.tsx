@@ -127,6 +127,7 @@ export function AddPositionModal({ open, onClose, editPosition }: Props) {
           companyName: form.companyName!,
           logoUrl: form.logoUrl || "",
           category: form.category as Position["category"] || "core",
+          strategy: form.strategy as Position["strategy"],  // optional — auto-inferred if empty
           shares: Number(form.shares),
           avgCost: Number(form.avgCost),
           currentPrice: Number(form.currentPrice) || Number(form.avgCost),
@@ -215,6 +216,27 @@ export function AddPositionModal({ open, onClose, editPosition }: Props) {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Strategy — controls Pivot vs Fib levels in Analyzer */}
+          <div>
+            <Label>Strategy</Label>
+            <Select
+              value={form.strategy || ""}
+              onValueChange={(v) => f("strategy", v as Position["strategy"])}
+            >
+              <SelectTrigger className="bg-[#1A2E52] border-[#1F3566] text-white mt-1">
+                <SelectValue placeholder="Auto (from Category)" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1A2E52] border-[#1F3566]">
+                <SelectItem value="dca"   className="text-white hover:bg-[#1F3566]">🟡 DCA — Long-term, accumulate at Fibonacci</SelectItem>
+                <SelectItem value="swing" className="text-white hover:bg-[#1F3566]">🔵 SWING — Short-term, trade Pivot S/R</SelectItem>
+                <SelectItem value="spec"  className="text-white hover:bg-[#1F3566]">🟣 SPEC — Speculative momentum</SelectItem>
+              </SelectContent>
+            </Select>
+            <div className="text-[10px] text-gray-500 mt-1">
+              Determines which S/R levels show in Analyzer chart + how alerts are generated.
+            </div>
           </div>
 
           {/* Exchange */}

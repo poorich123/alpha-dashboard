@@ -22,14 +22,20 @@ const EMA_COLORS = {
   ema200: "#10b981",  // emerald
 }
 
+type OverlayMode = "pivot" | "fib" | "both" | "none"
+
 export function AnalyzerChart({ result }: { result: AnalyzerResult }) {
   const [tf, setTf] = useState<typeof TF_OPTIONS[number]["label"]>("3M")
   const [showCandles, setShowCandles] = useState(true)
+  const [overlay, setOverlay] = useState<OverlayMode>("pivot")
 
   const cfg = TF_OPTIONS.find(o => o.label === tf)!
   const visibleBars = cfg.bars
 
   const chart = useMemo(() => buildChart(result, visibleBars), [result, visibleBars])
+
+  const showPivot = overlay === "pivot" || overlay === "both"
+  const showFib   = overlay === "fib"   || overlay === "both"
 
   return (
     <div className="bg-[#0C1628] border border-[#1A2E52] rounded-2xl p-4 hsr-card">
@@ -42,7 +48,28 @@ export function AnalyzerChart({ result }: { result: AnalyzerResult }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Strategy overlay toggle */}
+          <div className="flex bg-[#070B18] border border-[#1A2E52] rounded-lg p-0.5 text-[10px]">
+            {(["pivot", "fib", "both", "none"] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setOverlay(m)}
+                className={cn(
+                  "px-2 py-0.5 rounded transition-colors font-medium",
+                  overlay === m ? "bg-[#00C2D4]/20 text-[#00D8EE]" : "text-gray-500 hover:text-gray-300"
+                )}
+                title={
+                  m === "pivot" ? "Pivot S/R — Swing trade (short-term)" :
+                  m === "fib"   ? "Fibonacci — DCA (long-term)" :
+                  m === "both"  ? "Both Pivot + Fib" : "Hide overlays"
+                }
+              >
+                {m === "pivot" ? "Pivot" : m === "fib" ? "Fib" : m === "both" ? "Both" : "—"}
+              </button>
+            ))}
+          </div>
+
           {/* Candle/Line toggle */}
           <div className="flex bg-[#070B18] border border-[#1A2E52] rounded-lg p-0.5 text-xs">
             <button
@@ -147,6 +174,39 @@ export function AnalyzerChart({ result }: { result: AnalyzerResult }) {
           {/* SL line */}
           <line x1="0" y1={chart.priceToY(result.tradeLevels.sl)} x2="800" y2={chart.priceToY(result.tradeLevels.sl)} stroke="#ef4444" strokeWidth="1" strokeDasharray="4,2" />
 
+          {/* Pivot S/R overlay (Swing strategy) — solid cyan lines */}
+          {showPivot && (
+            <g>
+              <line x1="0" y1={chart.priceToY(result.srLevels.resistance2)} x2="800" y2={chart.priceToY(result.srLevels.resistance2)} stroke="#06b6d4" strokeWidth="0.8" opacity="0.5" />
+              <line x1="0" y1={chart.priceToY(result.srLevels.resistance1)} x2="800" y2={chart.priceToY(result.srLevels.resistance1)} stroke="#06b6d4" strokeWidth="1"   opacity="0.9" />
+              <line x1="0" y1={chart.priceToY(result.srLevels.support1)}    x2="800" y2={chart.priceToY(result.srLevels.support1)}    stroke="#06b6d4" strokeWidth="1"   opacity="0.9" />
+              <line x1="0" y1={chart.priceToY(result.srLevels.support2)}    x2="800" y2={chart.priceToY(result.srLevels.support2)}    stroke="#06b6d4" strokeWidth="0.8" opacity="0.5" />
+            </g>
+          )}
+
+          {/* Fibonacci retracement overlay (DCA strategy) — dashed amber lines */}
+          {showFib && result.fibLevels && (
+            <g>
+              {[
+                { v: result.fibLevels.level_0,   l: "0%",    o: 0.4 },
+                { v: result.fibLevels.level_236, l: "23.6%", o: 0.5 },
+                { v: result.fibLevels.level_382, l: "38.2%", o: 0.7 },
+                { v: result.fibLevels.level_500, l: "50%",   o: 0.9 },  // primary
+                { v: result.fibLevels.level_618, l: "61.8%", o: 0.95 }, // golden
+                { v: result.fibLevels.level_786, l: "78.6%", o: 0.7 },
+                { v: result.fibLevels.level_100, l: "100%",  o: 0.4 },
+              ].map((f, i) => (
+                <line
+                  key={i}
+                  x1="0" y1={chart.priceToY(f.v)} x2="800" y2={chart.priceToY(f.v)}
+                  stroke="#fbbf24" strokeWidth={f.l === "50%" || f.l === "61.8%" ? 1.2 : 0.7}
+                  strokeDasharray={f.l === "0%" || f.l === "100%" ? "0" : "5,3"}
+                  opacity={f.o}
+                />
+              ))}
+            </g>
+          )}
+
           {/* Current price line */}
           <line x1="0" y1={chart.priceToY(result.snapshot.currentPrice)} x2="800" y2={chart.priceToY(result.snapshot.currentPrice)} stroke="#ffffff" strokeWidth="0.5" opacity="0.6" />
         </svg>
@@ -168,6 +228,23 @@ export function AnalyzerChart({ result }: { result: AnalyzerResult }) {
           <PriceLabel y={chart.priceToY(result.tradeLevels.tradeAccumHigh)} text={`Accum $${result.tradeLevels.tradeAccumHigh.toFixed(2)}`} color="#ec4899" />
           <PriceLabel y={chart.priceToY(result.snapshot.currentPrice)} text={`$${result.snapshot.currentPrice.toFixed(2)}`} color="#ffffff" bold />
           <PriceLabel y={chart.priceToY(result.tradeLevels.sl)} text={`SL $${result.tradeLevels.sl.toFixed(2)}`} color="#ef4444" />
+
+          {/* Pivot S/R labels */}
+          {showPivot && (
+            <>
+              <PriceLabel y={chart.priceToY(result.srLevels.resistance1)} text={`R1 $${result.srLevels.resistance1.toFixed(2)}`} color="#06b6d4" />
+              <PriceLabel y={chart.priceToY(result.srLevels.support1)}    text={`S1 $${result.srLevels.support1.toFixed(2)}`}    color="#06b6d4" />
+            </>
+          )}
+
+          {/* Fib labels — only show 38.2 / 50 / 61.8 to avoid clutter */}
+          {showFib && result.fibLevels && (
+            <>
+              <PriceLabel y={chart.priceToY(result.fibLevels.level_382)} text={`Fib 38.2% $${result.fibLevels.level_382.toFixed(2)}`} color="#fbbf24" />
+              <PriceLabel y={chart.priceToY(result.fibLevels.level_500)} text={`Fib 50% $${result.fibLevels.level_500.toFixed(2)}`}   color="#fbbf24" />
+              <PriceLabel y={chart.priceToY(result.fibLevels.level_618)} text={`Fib 61.8% $${result.fibLevels.level_618.toFixed(2)}`} color="#fbbf24" />
+            </>
+          )}
         </div>
       </div>
 

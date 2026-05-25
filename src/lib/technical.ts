@@ -72,6 +72,96 @@ export function calculateBollingerBands(
   }
 }
 
+// ── Fibonacci Retracement (for long-term DCA strategy) ─────────────────────
+//
+// Identifies the most significant swing (high → low) in the lookback window,
+// then projects standard Fibonacci retracement levels. Used as a different
+// "lens" from Pivot S/R — Fib levels work better for major trend pullbacks
+// where DCA / accumulation is the strategy.
+//
+export interface FibLevels {
+  swingHigh: number
+  swingLow: number
+  swingHighIdx: number
+  swingLowIdx: number
+  direction: "up" | "down"  // "up" = uptrend retracement (buy at fib levels)
+  // Standard Fibonacci retracement levels (price)
+  level_0: number      // 0% = swing high (in uptrend)
+  level_236: number    // 23.6% — shallow pullback
+  level_382: number    // 38.2% — first DCA tranche
+  level_500: number    // 50%   — second DCA tranche
+  level_618: number    // 61.8% — Golden ratio, primary DCA zone
+  level_786: number    // 78.6% — deep value DCA, last chance
+  level_100: number    // 100% = swing low
+  // Closest level to current price + distance
+  nearest: { label: string; price: number; pctAway: number }
+}
+
+export function getFibLevels(
+  highs: number[],
+  lows: number[],
+  currentPrice: number,
+  lookbackDays = 252,  // ~1 year for major swing
+): FibLevels | null {
+  const len = Math.min(lookbackDays, highs.length)
+  if (len < 30) return null  // need enough data
+  const recentHighs = highs.slice(-len)
+  const recentLows  = lows.slice(-len)
+
+  // Find absolute swing extremes in window
+  let swingHigh = recentHighs[0], swingHighIdx = 0
+  let swingLow  = recentLows[0],  swingLowIdx  = 0
+  for (let i = 1; i < len; i++) {
+    if (recentHighs[i] > swingHigh) { swingHigh = recentHighs[i]; swingHighIdx = i }
+    if (recentLows[i]  < swingLow)  { swingLow  = recentLows[i];  swingLowIdx  = i }
+  }
+
+  // Direction: if high comes AFTER low → uptrend (we retrace from high back down)
+  //            if low comes AFTER high → downtrend (we retrace from low back up)
+  const direction: "up" | "down" = swingHighIdx > swingLowIdx ? "up" : "down"
+
+  // Calc retracement levels
+  // Uptrend: 0% = high, 100% = low (price retraces DOWN to fib levels)
+  // Downtrend: 0% = low, 100% = high (price retraces UP to fib levels)
+  const range = swingHigh - swingLow
+  const top = direction === "up" ? swingHigh : swingLow
+  const bottom = direction === "up" ? swingLow : swingHigh
+  const sign = direction === "up" ? -1 : 1
+
+  const calc = (pct: number) => top + sign * range * pct
+  const level_0   = top
+  const level_236 = calc(0.236)
+  const level_382 = calc(0.382)
+  const level_500 = calc(0.500)
+  const level_618 = calc(0.618)
+  const level_786 = calc(0.786)
+  const level_100 = bottom
+
+  // Find nearest level
+  const levels = [
+    { label: "0%",    price: level_0   },
+    { label: "23.6%", price: level_236 },
+    { label: "38.2%", price: level_382 },
+    { label: "50%",   price: level_500 },
+    { label: "61.8%", price: level_618 },
+    { label: "78.6%", price: level_786 },
+    { label: "100%",  price: level_100 },
+  ]
+  const nearest = levels.reduce((best, lv) => {
+    const dist = Math.abs(lv.price - currentPrice)
+    const bestDist = Math.abs(best.price - currentPrice)
+    return dist < bestDist ? lv : best
+  })
+  const pctAway = ((nearest.price - currentPrice) / currentPrice) * 100
+
+  return {
+    swingHigh, swingLow, swingHighIdx, swingLowIdx,
+    direction,
+    level_0, level_236, level_382, level_500, level_618, level_786, level_100,
+    nearest: { ...nearest, pctAway },
+  }
+}
+
 export function getSupportResistance(
   highs: number[],
   lows: number[],

@@ -17,7 +17,7 @@ import { getQuote, getCompanyProfile } from "./finnhub"
 import { getYahooCandles, deriveQuoteFromCandle } from "./yfinance"
 import {
   calculateEMA, calculateRSI, calculateMACD, calculateBollingerBands,
-  getSupportResistance,
+  getSupportResistance, getFibLevels, type FibLevels,
 } from "./technical"
 import type { Candle, Quote, CompanyProfile } from "@/types"
 
@@ -117,6 +117,10 @@ export interface AnalyzerResult {
   tradeLevels: TradeLevels
   entryRec: EntryRecommendation     // Real-time entry strategy
   snapshot: MarketSnapshot
+
+  // Levels for chart overlays — used by both DCA (Fib) and Swing (Pivot S/R) strategies
+  srLevels: { support1: number; support2: number; resistance1: number; resistance2: number }
+  fibLevels: FibLevels | null
 
   // For chart rendering
   candles: Candle
@@ -774,6 +778,7 @@ export async function analyzeStock(ticker: string): Promise<AnalyzerResult | nul
 
     // Trade levels — use real S/R from price pivots for accum zone + TP1
     const sr = getSupportResistance(highs, lows, currentPrice)
+    const fibLevels = getFibLevels(highs, lows, currentPrice, 252)  // 1-year swing
     const tradeLevels = buildTradeLevels(currentPrice, sma50, bb, highs, sr.support1, sr.resistance1)
 
     // ── Signal logic — use ratio (passing/scorable) not raw count ──
@@ -850,6 +855,8 @@ export async function analyzeStock(ticker: string): Promise<AnalyzerResult | nul
       tradeLevels,
       entryRec,
       snapshot,
+      srLevels: sr,
+      fibLevels,
       candles: candle,
       ema15: ema15arr,
       ema30: ema30arr,
