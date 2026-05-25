@@ -25,7 +25,7 @@
  * Output: ranked list with action ("LONG" / "SHORT" / "WATCH").
  */
 
-import { getNews } from "./finnhub"
+import { getNews, getMarketNews } from "./finnhub"
 import { quickScoreImpact, quickScoreSentiment } from "./newsMonitor"
 import { getYahooCandles } from "./yfinance"
 import type { NewsItem } from "@/types"
@@ -51,11 +51,17 @@ export interface CatalystSignal {
 /**
  * Scan a single ticker for active catalyst signal.
  * Returns null if no catalyst detected (score < 50).
+ *
+ * @param ticker - symbol to scan
+ * @param preloadedNews - optional news (skip getNews API call if provided)
  */
-async function scanTicker(ticker: string): Promise<CatalystSignal | null> {
+async function scanTicker(
+  ticker: string,
+  preloadedNews?: NewsItem[]
+): Promise<CatalystSignal | null> {
   try {
     // ── Pull news (last 7 days but we'll filter to 24h) ────────────
-    const news = await getNews(ticker).catch(() => [] as NewsItem[])
+    const news = preloadedNews ?? await getNews(ticker).catch(() => [] as NewsItem[])
     const now = Date.now() / 1000
     const recent24h = news.filter(n => now - n.datetime < 24 * 3600)
 
@@ -167,7 +173,8 @@ async function scanTicker(ticker: string): Promise<CatalystSignal | null> {
 
 /**
  * Scan multiple tickers for catalysts in parallel (batched).
- * Returns top N ranked by score descending.
+ * Per-ticker news fetched individually (Finnhub /news?symbol=X).
+ * Use this for small ticker lists (< 30) like holdings/watchlist.
  */
 export async function scanCatalysts(
   tickers: string[],
@@ -180,7 +187,7 @@ export async function scanCatalysts(
 
   for (let i = 0; i < tickers.length; i += BATCH) {
     const batch = tickers.slice(i, i + BATCH)
-    const settled = await Promise.allSettled(batch.map(scanTicker))
+    const settled = await Promise.allSettled(batch.map(t => scanTicker(t)))
     for (const s of settled) {
       if (s.status === "fulfilled" && s.value) {
         results.push(s.value)
@@ -193,4 +200,82 @@ export async function scanCatalysts(
   return results
     .sort((a, b) => b.score - a.score)
     .slice(0, topN)
+}
+
+/**
+ * Universe scan with news-prefilter — the professional approach.
+ *
+ * Step 1: Fetch ONE call to getMarketNews() → get all recent market news.
+ * Step 2: Build ticker → news[] map by parsing each news.related field
+ *         (Finnhub tags articles with affected ticker symbols).
+ * Step 3: Candidate pool = (tickers in universe ∩ tickers with news) ∪ alwaysInclude.
+ *         This typically reduces 700+ universe → 30-100 actual candidates.
+ * Step 4: Deep-scan each candidate using PRE-LOADED news (no per-ticker
+ *         Finnhub call) + Yahoo candles. Yahoo has no strict rate limit.
+ *
+ * Result: a sub-5-min scan of a 700-ticker universe with minimal API quota.
+ */
+export async function scanCatalystsUniverse(
+  universe: string[],
+  options: {
+    topN?: number
+    alwaysInclude?: string[]  // tickers to scan even without news (e.g. portfolio)
+    onProgress?: (done: number, total: number, phase: "prefilter" | "scan") => void
+  } = {}
+): Promise<{ signals: CatalystSignal[]; candidatesScanned: number; universeSize: number }> {
+  const { topN = 15, alwaysInclude = [], onProgress } = options
+
+  // ── Step 1+2: Fetch market news, build ticker→news map ─────────────
+  onProgress?.(0, 1, "prefilter")
+  const marketNews = await getMarketNews().catch(() => [] as NewsItem[])
+  const newsMap = new Map<string, NewsItem[]>()
+  const now = Date.now() / 1000
+
+  for (const n of marketNews) {
+    // related is space-separated ticker symbols in Finnhub responses
+    if (!n.related || now - n.datetime > 24 * 3600) continue
+    const tickers = n.related.split(/[\s,]+/).map(t => t.trim().toUpperCase()).filter(Boolean)
+    for (const t of tickers) {
+      if (!newsMap.has(t)) newsMap.set(t, [])
+      newsMap.get(t)!.push(n)
+    }
+  }
+  onProgress?.(1, 1, "prefilter")
+
+  // ── Step 3: Build candidate pool ───────────────────────────────────
+  const universeSet = new Set(universe.map(t => t.toUpperCase()))
+  const alwaysSet = new Set(alwaysInclude.map(t => t.toUpperCase()))
+  const candidates: string[] = []
+  for (const t of universeSet) {
+    if (newsMap.has(t) || alwaysSet.has(t)) candidates.push(t)
+  }
+  // Always include holdings even if not in universe
+  for (const t of alwaysSet) {
+    if (!universeSet.has(t)) candidates.push(t)
+  }
+
+  // ── Step 4: Deep-scan candidates with preloaded news ───────────────
+  const results: CatalystSignal[] = []
+  let done = 0
+  const BATCH = 8  // Yahoo can handle more in parallel
+
+  for (let i = 0; i < candidates.length; i += BATCH) {
+    const batch = candidates.slice(i, i + BATCH)
+    const settled = await Promise.allSettled(
+      batch.map(t => scanTicker(t, newsMap.get(t) || []))
+    )
+    for (const s of settled) {
+      if (s.status === "fulfilled" && s.value) {
+        results.push(s.value)
+      }
+    }
+    done += batch.length
+    onProgress?.(done, candidates.length, "scan")
+  }
+
+  return {
+    signals: results.sort((a, b) => b.score - a.score).slice(0, topN),
+    candidatesScanned: candidates.length,
+    universeSize: universeSet.size,
+  }
 }

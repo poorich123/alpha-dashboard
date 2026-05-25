@@ -3,43 +3,71 @@
 import { useState, useCallback } from "react"
 import { Radar, RefreshCw, ExternalLink, ChevronDown, ChevronUp } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { scanCatalysts, type CatalystSignal } from "@/lib/catalystRadar"
-import { SPECULATIVE_MOMENTUM } from "@/lib/stockLists"
+import {
+  scanCatalysts, scanCatalystsUniverse, type CatalystSignal,
+} from "@/lib/catalystRadar"
+import { SPECULATIVE_MOMENTUM, SP500, NYSE_INTERESTING } from "@/lib/stockLists"
+import { usePortfolioStore } from "@/store/portfolioStore"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import toast from "react-hot-toast"
 
-interface Props {
-  /** Optional restricted ticker pool — defaults to SPECULATIVE_MOMENTUM */
-  tickers?: string[]
-}
+type ScanMode = "quick" | "deep" | "holdings"
 
-export function CatalystRadar({ tickers }: Props) {
+export function CatalystRadar() {
+  const positions = usePortfolioStore(s => s.positions)
+  const [mode, setMode] = useState<ScanMode>("quick")
   const [scanning, setScanning] = useState(false)
   const [signals, setSignals] = useState<CatalystSignal[]>([])
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
+  const [progress, setProgress] = useState({ done: 0, total: 0, phase: "scan" as "prefilter" | "scan" })
+  const [meta, setMeta] = useState<{ candidates: number; universe: number } | null>(null)
   const [open, setOpen] = useState(true)
   const [lastScannedAt, setLastScannedAt] = useState<number | null>(null)
 
-  const pool = tickers ?? SPECULATIVE_MOMENTUM
-
   const runScan = useCallback(async () => {
     setScanning(true)
-    setProgress({ done: 0, total: pool.length })
+    setProgress({ done: 0, total: 0, phase: "prefilter" })
+    setMeta(null)
+
     try {
-      // Limit to first 50 to avoid 5-min scan times (catalyst radar is volume-aware so
-      // most relevant tickers are speculative anyway)
-      const subset = pool.slice(0, 50)
-      const results = await scanCatalysts(subset, {
-        topN: 8,
-        onProgress: (done, total) => setProgress({ done, total }),
-      })
+      const holdings = positions
+        .filter(p => p.isActive)
+        .map(p => p.ticker.toUpperCase())
+
+      let results: CatalystSignal[] = []
+
+      if (mode === "holdings") {
+        // Direct per-ticker scan — small list, can afford individual Finnhub calls
+        if (holdings.length === 0) {
+          toast("No holdings to scan", { icon: "📭" })
+          return
+        }
+        setProgress({ done: 0, total: holdings.length, phase: "scan" })
+        results = await scanCatalysts(holdings, {
+          topN: holdings.length,
+          onProgress: (d, t) => setProgress({ done: d, total: t, phase: "scan" }),
+        })
+        setMeta({ candidates: holdings.length, universe: holdings.length })
+      } else {
+        // Universe scan with news-prefilter (efficient pro approach)
+        const universe = mode === "deep"
+          ? [...new Set([...SP500, ...NYSE_INTERESTING, ...SPECULATIVE_MOMENTUM])]
+          : SPECULATIVE_MOMENTUM
+        const r = await scanCatalystsUniverse(universe, {
+          topN: 15,
+          alwaysInclude: holdings,
+          onProgress: (d, t, phase) => setProgress({ done: d, total: t, phase }),
+        })
+        results = r.signals
+        setMeta({ candidates: r.candidatesScanned, universe: r.universeSize })
+      }
+
       setSignals(results)
       setLastScannedAt(Date.now())
       if (results.length === 0) {
         toast("No active catalysts found", { icon: "🌙" })
       } else {
-        toast.success(`Found ${results.length} catalysts`)
+        toast.success(`Found ${results.length} catalyst${results.length > 1 ? "s" : ""}`)
       }
     } catch (err) {
       toast.error("Catalyst scan failed")
@@ -47,7 +75,7 @@ export function CatalystRadar({ tickers }: Props) {
     } finally {
       setScanning(false)
     }
-  }, [pool])
+  }, [mode, positions])
 
   return (
     <div className="bg-[#0C1628] border border-fuchsia-500/30 rounded-2xl overflow-hidden hsr-card mb-3">
@@ -61,10 +89,15 @@ export function CatalystRadar({ tickers }: Props) {
           <div>
             <div className="text-sm font-bold text-fuchsia-300">🎯 Catalyst Radar</div>
             <div className="text-[10px] text-gray-500">
-              SPEC scanner · news + volume + gap detection
+              News + volume + gap detection
+              {meta && (
+                <span className="ml-1 text-gray-600">
+                  · {meta.candidates} candidates from {meta.universe} universe
+                </span>
+              )}
               {lastScannedAt && (
                 <span className="ml-1 text-gray-600">
-                  · scanned {formatDistanceToNow(lastScannedAt, { addSuffix: true })}
+                  · {formatDistanceToNow(lastScannedAt, { addSuffix: true })}
                 </span>
               )}
             </div>
@@ -72,15 +105,41 @@ export function CatalystRadar({ tickers }: Props) {
           {open ? <ChevronUp className="w-3.5 h-3.5 text-gray-500" /> : <ChevronDown className="w-3.5 h-3.5 text-gray-500" />}
         </button>
 
-        <Button
-          size="sm"
-          onClick={runScan}
-          disabled={scanning}
-          className="bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/40 text-fuchsia-200 gap-1 h-8 text-xs"
-        >
-          {scanning ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Radar className="w-3 h-3" />}
-          {scanning ? `Scanning ${progress.done}/${progress.total}…` : "Scan Now"}
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Mode chips */}
+          <div className="flex bg-[#070B18] border border-fuchsia-500/20 rounded-lg p-0.5 text-[10px]">
+            {([
+              { key: "quick", label: "Quick", tip: "SPEC universe (~190) via news prefilter · ~30s" },
+              { key: "deep", label: "Deep", tip: "Full S&P+NYSE+SPEC (~700) via news prefilter · ~3-5min" },
+              { key: "holdings", label: "Holdings", tip: "Just your positions + watchlist · ~10s" },
+            ] as const).map(m => (
+              <button
+                key={m.key}
+                onClick={() => setMode(m.key)}
+                title={m.tip}
+                disabled={scanning}
+                className={cn(
+                  "px-2 py-0.5 rounded font-semibold transition-colors",
+                  mode === m.key
+                    ? "bg-fuchsia-500/30 text-fuchsia-100"
+                    : "text-gray-500 hover:text-gray-300",
+                )}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            size="sm"
+            onClick={runScan}
+            disabled={scanning}
+            className="bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/40 text-fuchsia-200 gap-1 h-8 text-xs"
+          >
+            {scanning ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Radar className="w-3 h-3" />}
+            {scanning ? `${progress.phase === "prefilter" ? "Prefiltering" : `Scanning ${progress.done}/${progress.total}`}…` : "Scan Now"}
+          </Button>
+        </div>
       </div>
 
       {open && (
@@ -88,10 +147,17 @@ export function CatalystRadar({ tickers }: Props) {
           {/* Progress bar */}
           {scanning && (
             <div className="px-4 py-2">
+              <div className="flex items-center justify-between text-[10px] text-gray-500 mb-1">
+                <span>
+                  {progress.phase === "prefilter"
+                    ? "📰 Fetching market news + extracting ticker mentions…"
+                    : `🎯 Deep-scanning ${progress.done}/${progress.total} candidates…`}
+                </span>
+              </div>
               <div className="h-1 bg-[#1A2E52] rounded-full overflow-hidden">
                 <div
                   className="h-full bg-fuchsia-400 transition-all duration-300"
-                  style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
+                  style={{ width: progress.phase === "prefilter" ? "10%" : `${10 + (progress.done / Math.max(1, progress.total)) * 90}%` }}
                 />
               </div>
             </div>
@@ -101,12 +167,15 @@ export function CatalystRadar({ tickers }: Props) {
           {!scanning && signals.length === 0 && (
             <div className="px-4 py-6 text-center">
               <div className="text-xs text-gray-500 mb-2">
-                Click <strong className="text-fuchsia-300">Scan Now</strong> to detect live catalysts in {pool.slice(0, 50).length} SPEC tickers
+                Click <strong className="text-fuchsia-300">Scan Now</strong> to detect live catalysts
               </div>
-              <div className="text-[10px] text-gray-600 max-w-md mx-auto leading-relaxed">
-                Catalyst Radar finds tickers with: news in last 24h (HIGH/CRITICAL impact) +
-                volume {">"}2× normal + price gap {">"}3%. These signal news-driven SPEC opportunities
-                where Pivot S/R don&apos;t apply.
+              <div className="text-[10px] text-gray-600 max-w-lg mx-auto leading-relaxed space-y-1">
+                <p>
+                  <strong className="text-fuchsia-300">Pro technique:</strong> we fetch all market news first
+                  (1 API call), extract ticker mentions, then deep-scan only stocks with news + Yahoo
+                  volume/gap data. Reduces 700-ticker universe → ~50 actual scans in seconds.
+                </p>
+                <p>Catalyst = news in 24h (HIGH/CRITICAL) + volume {">"}2× normal + gap {">"}3%.</p>
               </div>
             </div>
           )}

@@ -337,8 +337,8 @@ export default function MarketPage() {
         <IndicesBar indices={indices} loading={loadingIndices} />
       </div>
 
-      {/* ── Catalyst Radar — SPEC scanner (news + volume + gap) ───── */}
-      {category === "speculative" && <CatalystRadar />}
+      {/* ── Catalyst Radar — news + volume + gap (skip ETF — funds don't have catalysts) ── */}
+      {category !== "etf" && <CatalystRadar />}
 
       {/* ── Category Tabs ─────────────────────────────────────────── */}
       <div className="bg-[#0C1628] border border-[#1A2E52] rounded-2xl p-2 mb-3 flex gap-1 hsr-card">
