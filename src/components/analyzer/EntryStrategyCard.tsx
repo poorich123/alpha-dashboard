@@ -1,15 +1,24 @@
 "use client"
 
 import { useState } from "react"
-import { AlertTriangle, Sparkles, Target, TrendingDown, ChevronDown, ChevronUp } from "lucide-react"
+import { AlertTriangle, Sparkles, Target, ChevronDown, ChevronUp, Clock, Repeat } from "lucide-react"
 import type { EntryRecommendation, TradeLevels } from "@/lib/stockAnalyzer"
+import type { FibLevels } from "@/lib/technical"
+import type { TradingStrategy } from "@/types"
 import { cn } from "@/lib/utils"
 
 interface Props {
   rec: EntryRecommendation
   levels: TradeLevels
   ticker: string
+  // Phase 2 additions:
+  srLevels?: { support1: number; support2: number; resistance1: number; resistance2: number }
+  fibLevels?: FibLevels | null
+  // Strategy of the user's position (if held) — auto-highlights the matching plan
+  positionStrategy?: TradingStrategy
 }
+
+type ViewMode = "swing" | "dca" | "both"
 
 function tierBg(strategy: EntryRecommendation["strategy"]) {
   switch (strategy) {
@@ -31,8 +40,13 @@ function tierBarColor(strategy: EntryRecommendation["strategy"]) {
   }
 }
 
-export function EntryStrategyCard({ rec, levels, ticker }: Props) {
+export function EntryStrategyCard({ rec, levels, srLevels, fibLevels, positionStrategy }: Props) {
   const [open, setOpen] = useState(true)
+  // Default view: match position's strategy, else show both
+  const defaultView: ViewMode = positionStrategy === "dca" ? "dca"
+                              : positionStrategy === "swing" ? "swing"
+                              : "both"
+  const [view, setView] = useState<ViewMode>(defaultView)
 
   // Visual position bar — accum zone, current price, BB upper
   const accumLow  = levels.tradeAccumLow
@@ -142,56 +156,58 @@ export function EntryStrategyCard({ rec, levels, ticker }: Props) {
             </div>
           )}
 
-          {/* Action Plan */}
-          {rec.strategy !== "SKIP" && (
-            <div className="bg-[#070B18]/60 border border-[#1A2E52]/70 rounded-xl p-3 mb-3">
-              <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1">
+          {/* ── Strategy view toggle ─────────────────────────────────── */}
+          {rec.strategy !== "SKIP" && (srLevels || fibLevels) && (
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div className="text-[10px] text-gray-500 uppercase tracking-wider flex items-center gap-1">
                 <Target className="w-3 h-3" />Action Plan
-              </div>
-              <div className="space-y-1.5 text-xs">
-                {rec.sizeNow > 0 && rec.entryPriceNow && (
-                  <div className="flex items-center gap-2">
-                    <span className={cn("inline-block w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold", tierBarColor(rec.strategy), "text-white")}>
-                      1
-                    </span>
-                    <span className="text-gray-300">
-                      เข้า <span className={cn("font-bold", rec.color)}>{rec.sizeNow}%</span> ตอนนี้ที่ <span className="text-white font-mono">${rec.entryPriceNow.toFixed(2)}</span>
-                    </span>
-                  </div>
+                {positionStrategy && (
+                  <span className="ml-1 text-[9px] text-gray-600">
+                    (your position: <span className="text-cyan-400">{positionStrategy.toUpperCase()}</span>)
+                  </span>
                 )}
-                {rec.sizeOnPullback > 0 && rec.pullbackTarget && (
-                  <div className="flex items-center gap-2">
-                    <span className="inline-block w-5 h-5 rounded-full bg-cyan-500 flex items-center justify-center text-[10px] font-bold text-white">
-                      {rec.sizeNow > 0 ? "2" : "1"}
-                    </span>
-                    <span className="text-gray-300">
-                      รอ <span className="font-bold text-cyan-400">{rec.sizeOnPullback}%</span> ที่ <span className="text-white font-mono">${rec.pullbackTarget.toFixed(2)}</span>
-                      {rec.pullbackPct !== undefined && (
-                        <span className="text-gray-500"> ({rec.pullbackPct >= 0 ? "+" : ""}{rec.pullbackPct.toFixed(1)}%)</span>
-                      )}
-                    </span>
-                  </div>
-                )}
-                <div className="flex items-center gap-2 pt-1 border-t border-[#1A2E52]/50">
-                  <span className="inline-block w-5 h-5 rounded-full bg-red-500 flex items-center justify-center text-[10px] font-bold text-white">
-                    SL
-                  </span>
-                  <span className="text-gray-300">
-                    Stop loss ที่ <span className="text-red-400 font-mono">${sl.toFixed(2)}</span>
-                    <span className="text-gray-500"> ({levels.slPct.toFixed(1)}%)</span>
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-block w-5 h-5 rounded-full bg-emerald-500 flex items-center justify-center text-[10px] font-bold text-white">
-                    TP
-                  </span>
-                  <span className="text-gray-300">
-                    TP1 <span className="font-mono text-emerald-400">${tp1.toFixed(2)}</span> (40%) ·
-                    TP2 <span className="font-mono text-emerald-400">${levels.tp2.toFixed(2)}</span> (40%) ·
-                    TP3 <span className="font-mono text-emerald-400">${levels.tp3.toFixed(2)}</span> (20%)
-                  </span>
-                </div>
               </div>
+              <div className="flex bg-[#070B18] border border-[#1A2E52] rounded-lg p-0.5 text-[10px]">
+                {(["swing", "dca", "both"] as const).map(m => (
+                  <button
+                    key={m}
+                    onClick={() => setView(m)}
+                    className={cn(
+                      "px-2 py-0.5 rounded transition-colors font-semibold",
+                      view === m ? "bg-[#00C2D4]/20 text-[#00D8EE]" : "text-gray-500 hover:text-gray-300",
+                    )}
+                  >
+                    {m === "swing" ? "🔵 SWING" : m === "dca" ? "🟡 DCA" : "Both"}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ── Dual Action Plans ─────────────────────────────────────── */}
+          {rec.strategy !== "SKIP" && (srLevels || fibLevels) && (
+            <div className={cn(
+              "grid gap-3 mb-3",
+              view === "both" ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
+            )}>
+              {/* SWING plan */}
+              {(view === "swing" || view === "both") && srLevels && (
+                <SwingPlanCard
+                  current={current}
+                  srLevels={srLevels}
+                  levels={levels}
+                  highlighted={positionStrategy === "swing"}
+                />
+              )}
+
+              {/* DCA plan */}
+              {(view === "dca" || view === "both") && (
+                <DcaPlanCard
+                  current={current}
+                  fibLevels={fibLevels || null}
+                  highlighted={positionStrategy === "dca"}
+                />
+              )}
             </div>
           )}
 
@@ -229,6 +245,227 @@ export function EntryStrategyCard({ rec, levels, ticker }: Props) {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+// ─── Swing Plan Card — Pivot-based, short-term ─────────────────────────────
+//
+// Strategy: bounce at Pivot S1 → exit in tranches at R1/R2/TP targets.
+// Time horizon: 1-4 weeks. Strict price-based stop loss.
+//
+interface SwingProps {
+  current: number
+  srLevels: NonNullable<Props["srLevels"]>
+  levels: TradeLevels
+  highlighted: boolean
+}
+
+function SwingPlanCard({ current, srLevels, levels, highlighted }: SwingProps) {
+  const buyZoneLow  = srLevels.support1
+  const buyZoneHigh = Math.min(current * 1.005, (srLevels.support1 + current) / 2 * 1.02)
+  const inBuyZone = current <= buyZoneHigh && current >= buyZoneLow
+  const distToS1 = ((current - srLevels.support1) / srLevels.support1) * 100
+
+  return (
+    <div className={cn(
+      "rounded-xl border p-3 transition-all",
+      highlighted
+        ? "border-cyan-500/60 bg-cyan-500/5 ring-1 ring-cyan-500/30"
+        : "border-[#1A2E52] bg-[#070B18]/60"
+    )}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Clock className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="text-xs font-bold text-cyan-300">SWING PLAN</span>
+          {highlighted && (
+            <span className="text-[8px] font-bold bg-cyan-500/20 text-cyan-300 px-1.5 py-0.5 rounded border border-cyan-500/40">
+              YOUR STRATEGY
+            </span>
+          )}
+        </div>
+        <span className="text-[9px] text-gray-600">Pivot · 1-4w</span>
+      </div>
+
+      <div className="space-y-1 text-[11px] leading-relaxed">
+        <div className="flex justify-between">
+          <span className="text-gray-500">Buy zone (Pivot S1)</span>
+          <span className="font-mono text-cyan-300">
+            ${buyZoneLow.toFixed(2)} – ${buyZoneHigh.toFixed(2)}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Current</span>
+          <span className={cn("font-mono font-bold", inBuyZone ? "text-emerald-400" : "text-white")}>
+            ${current.toFixed(2)}
+            <span className="text-[9px] ml-1 text-gray-600">
+              ({distToS1 >= 0 ? "+" : ""}{distToS1.toFixed(1)}% vs S1)
+            </span>
+          </span>
+        </div>
+        <div className="flex justify-between border-t border-[#1A2E52]/60 pt-1 mt-1">
+          <span className="text-red-400">🛑 SL (Pivot S2)</span>
+          <span className="font-mono text-red-400">
+            ${Math.max(srLevels.support2, levels.sl).toFixed(2)}
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-emerald-400">🎯 TP1 (R1) — sell 40%</span>
+          <span className="font-mono text-emerald-400">${levels.tp1.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-emerald-400">🎯 TP2 (R2) — sell 40%</span>
+          <span className="font-mono text-emerald-400">${levels.tp2.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-emerald-400">🎯 TP3 — sell 20%</span>
+          <span className="font-mono text-emerald-400">${levels.tp3.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between border-t border-[#1A2E52]/60 pt-1 mt-1">
+          <span className="text-gray-500">⚖️ Risk/Reward</span>
+          <span className={cn("font-mono", levels.riskReward >= 2 ? "text-emerald-400" : "text-yellow-400")}>
+            {levels.riskReward.toFixed(2)}×
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">⏰ Time stop</span>
+          <span className="text-gray-400">4 weeks if no TP1 hit</span>
+        </div>
+      </div>
+
+      {inBuyZone && (
+        <div className="mt-2 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 rounded px-2 py-1">
+          ✓ Price IN buy zone — swing setup active
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── DCA Plan Card — Fibonacci-based, long-term ────────────────────────────
+//
+// Strategy: accumulate in tranches at Fib 38.2 / 50 / 61.8 retracements.
+// No price-based stop loss — exit only on thesis change. Hold months-to-years.
+//
+interface DcaProps {
+  current: number
+  fibLevels: FibLevels | null
+  highlighted: boolean
+}
+
+function DcaPlanCard({ current, fibLevels, highlighted }: DcaProps) {
+  if (!fibLevels) {
+    return (
+      <div className={cn(
+        "rounded-xl border p-3",
+        highlighted ? "border-amber-500/60 bg-amber-500/5 ring-1 ring-amber-500/30" : "border-[#1A2E52] bg-[#070B18]/60"
+      )}>
+        <div className="flex items-center gap-1.5 mb-2">
+          <Repeat className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-xs font-bold text-amber-300">DCA PLAN</span>
+        </div>
+        <div className="text-[11px] text-gray-500 text-center py-3">
+          Not enough price history for Fibonacci analysis (need 30+ days)
+        </div>
+      </div>
+    )
+  }
+
+  // Tranche definitions — buy more at deeper retracements
+  const tranches = [
+    { fib: "23.6%", price: fibLevels.level_236, size: 15 },
+    { fib: "38.2%", price: fibLevels.level_382, size: 25 },
+    { fib: "50%",   price: fibLevels.level_500, size: 25 },
+    { fib: "61.8%", price: fibLevels.level_618, size: 25 },  // Golden ratio
+    { fib: "78.6%", price: fibLevels.level_786, size: 10 },  // Deep value
+  ]
+
+  // Direction-aware: in uptrend, levels are BELOW price (retrace down); reverse for downtrend
+  // Find tranches still actionable (price hasn't passed them in retracement direction)
+  const actionable = tranches.filter(t =>
+    fibLevels.direction === "up" ? t.price < current : t.price > current
+  )
+
+  return (
+    <div className={cn(
+      "rounded-xl border p-3 transition-all",
+      highlighted
+        ? "border-amber-500/60 bg-amber-500/5 ring-1 ring-amber-500/30"
+        : "border-[#1A2E52] bg-[#070B18]/60"
+    )}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Repeat className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-xs font-bold text-amber-300">DCA PLAN</span>
+          {highlighted && (
+            <span className="text-[8px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded border border-amber-500/40">
+              YOUR STRATEGY
+            </span>
+          )}
+        </div>
+        <span className="text-[9px] text-gray-600">
+          Fib · {fibLevels.direction === "up" ? "Uptrend pullback" : "Downtrend bounce"}
+        </span>
+      </div>
+
+      <div className="space-y-1 text-[11px] leading-relaxed">
+        <div className="flex justify-between">
+          <span className="text-gray-500">Swing high</span>
+          <span className="font-mono text-amber-300">${fibLevels.swingHigh.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Swing low</span>
+          <span className="font-mono text-amber-300">${fibLevels.swingLow.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">Current</span>
+          <span className="font-mono font-bold text-white">${current.toFixed(2)}</span>
+        </div>
+
+        <div className="border-t border-[#1A2E52]/60 pt-1 mt-1 mb-1">
+          <div className="text-[9px] text-gray-600 uppercase tracking-wider mb-1">Tranche Targets</div>
+          {tranches.map(t => {
+            const isPast = fibLevels.direction === "up" ? t.price >= current : t.price <= current
+            const pct = ((t.price - current) / current) * 100
+            return (
+              <div key={t.fib} className={cn("flex justify-between text-[10px]", isPast && "opacity-30")}>
+                <span className={cn(
+                  "font-mono",
+                  t.fib === "50%" || t.fib === "61.8%" ? "text-amber-300 font-bold" : "text-gray-500"
+                )}>
+                  Fib {t.fib} → buy {t.size}%
+                </span>
+                <span className="font-mono text-amber-400">
+                  ${t.price.toFixed(2)}
+                  <span className="text-gray-600 ml-1">({pct >= 0 ? "+" : ""}{pct.toFixed(1)}%)</span>
+                </span>
+              </div>
+            )
+          })}
+        </div>
+
+        <div className="flex justify-between border-t border-[#1A2E52]/60 pt-1 mt-1">
+          <span className="text-gray-500">🛑 Cut loss</span>
+          <span className="text-gray-300">
+            <span className="text-[9px]">Thesis change · </span>
+            <span className="font-mono text-red-400">&lt;${fibLevels.level_786.toFixed(2)}</span>
+          </span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">🎯 Hold target</span>
+          <span className="text-gray-300 text-[10px]">No fixed TP · re-evaluate at swing high</span>
+        </div>
+        <div className="flex justify-between">
+          <span className="text-gray-500">⏰ Time horizon</span>
+          <span className="text-gray-400">Months to years</span>
+        </div>
+      </div>
+
+      {actionable.length > 0 && (
+        <div className="mt-2 text-[10px] text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded px-2 py-1">
+          🟡 Next DCA tranche: {actionable[0].fib} at ${actionable[0].price.toFixed(2)}
+        </div>
       )}
     </div>
   )

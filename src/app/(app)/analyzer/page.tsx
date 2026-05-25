@@ -15,6 +15,7 @@ import { MarketSnapshot, CompanyOverview } from "@/components/analyzer/MarketSna
 import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { usePortfolioStore } from "@/store/portfolioStore"
+import { inferStrategy } from "@/types"
 import toast from "react-hot-toast"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
 import { format } from "date-fns"
@@ -172,7 +173,22 @@ function AnalyzerPageInner() {
           <AnalyzerHeader result={result} />
 
           {/* ── Entry Strategy Card — real-time recommendation ── */}
-          <EntryStrategyCard rec={result.entryRec} levels={result.tradeLevels} ticker={result.ticker} />
+          <EntryStrategyCard
+            rec={result.entryRec}
+            levels={result.tradeLevels}
+            ticker={result.ticker}
+            srLevels={result.srLevels}
+            fibLevels={result.fibLevels}
+            positionStrategy={(() => {
+              // If user holds this ticker, use its strategy; else undefined
+              const positions = usePortfolioStore.getState().positions
+              const held = positions.find(p =>
+                p.ticker.toUpperCase() === result.ticker.toUpperCase() &&
+                p.isActive && p.category !== "watchlist"
+              )
+              return held ? (held.strategy ?? inferStrategy(held.category)) : undefined
+            })()}
+          />
 
           {/* Two-column: Chart + Trend Gauges */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
