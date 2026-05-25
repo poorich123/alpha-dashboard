@@ -5,7 +5,7 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, Target, Shield } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { PercentBadge } from "@/components/ui/PriceChange"
 import { usePortfolioStore } from "@/store/portfolioStore"
-import { type Position, inferStrategy } from "@/types"
+import type { Position } from "@/types"
 import { calculatePnL } from "@/lib/portfolio"
 import { differenceInDays, parseISO } from "date-fns"
 import toast from "react-hot-toast"
@@ -66,7 +66,8 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-bold">{p.ticker}</span>
                 <PercentBadge value={unrealizedPnLPercent} />
-                <StrategyBadge strategy={p.strategy ?? inferStrategy(p.category)} />
+                {/* Show strategy badge ONLY when user explicitly set it — keeps cards clean */}
+                {p.strategy && <StrategyBadge strategy={p.strategy} />}
               </div>
               <div className="text-xs text-gray-500">{p.companyName} • {p.sector}</div>
             </div>

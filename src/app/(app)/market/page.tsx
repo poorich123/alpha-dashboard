@@ -16,6 +16,7 @@ import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { IndicesBar } from "@/components/market/IndicesBar"
 import { StockTable } from "@/components/market/StockTable"
+import { CatalystRadar } from "@/components/market/CatalystRadar"
 import { cn } from "@/lib/utils"
 import { formatDistanceToNow } from "date-fns"
 import toast from "react-hot-toast"
@@ -335,6 +336,9 @@ export default function MarketPage() {
         <div className="text-xs text-gray-500 uppercase tracking-widest mb-2">Market Indices</div>
         <IndicesBar indices={indices} loading={loadingIndices} />
       </div>
+
+      {/* ── Catalyst Radar — SPEC scanner (news + volume + gap) ───── */}
+      {category === "speculative" && <CatalystRadar />}
 
       {/* ── Category Tabs ─────────────────────────────────────────── */}
       <div className="bg-[#0C1628] border border-[#1A2E52] rounded-2xl p-2 mb-3 flex gap-1 hsr-card">
