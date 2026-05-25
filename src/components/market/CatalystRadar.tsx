@@ -23,6 +23,7 @@ export function CatalystRadar() {
   const [meta, setMeta] = useState<{ candidates: number; universe: number } | null>(null)
   const [open, setOpen] = useState(true)
   const [lastScannedAt, setLastScannedAt] = useState<number | null>(null)
+  const [showWeak, setShowWeak] = useState(false)
 
   const runScan = useCallback(async () => {
     setScanning(true)
@@ -54,7 +55,7 @@ export function CatalystRadar() {
           ? [...new Set([...SP500, ...NYSE_INTERESTING, ...SPECULATIVE_MOMENTUM])]
           : SPECULATIVE_MOMENTUM
         const r = await scanCatalystsUniverse(universe, {
-          topN: 15,
+          topN: 30,  // include weak signals (UI splits at score 50)
           alwaysInclude: holdings,
           onProgress: (d, t, phase) => setProgress({ done: d, total: t, phase }),
         })
@@ -64,10 +65,15 @@ export function CatalystRadar() {
 
       setSignals(results)
       setLastScannedAt(Date.now())
+
+      const strong = results.filter(s => s.score >= 50).length
+      const weak = results.length - strong
       if (results.length === 0) {
-        toast("No active catalysts found", { icon: "🌙" })
+        toast("No active catalysts found — quiet market", { icon: "🌙" })
+      } else if (strong === 0) {
+        toast(`${weak} lower-confidence candidates · no strong catalysts`, { icon: "🟡" })
       } else {
-        toast.success(`Found ${results.length} catalyst${results.length > 1 ? "s" : ""}`)
+        toast.success(`${strong} strong catalyst${strong > 1 ? "s" : ""}${weak > 0 ? ` + ${weak} weak` : ""}`)
       }
     } catch (err) {
       toast.error("Catalyst scan failed")
@@ -163,8 +169,8 @@ export function CatalystRadar() {
             </div>
           )}
 
-          {/* Empty state */}
-          {!scanning && signals.length === 0 && (
+          {/* Empty state — never scanned */}
+          {!scanning && signals.length === 0 && !lastScannedAt && (
             <div className="px-4 py-6 text-center">
               <div className="text-xs text-gray-500 mb-2">
                 Click <strong className="text-fuchsia-300">Scan Now</strong> to detect live catalysts
@@ -180,14 +186,65 @@ export function CatalystRadar() {
             </div>
           )}
 
-          {/* Signal cards */}
-          {signals.length > 0 && (
-            <div className="divide-y divide-fuchsia-500/10">
-              {signals.map(s => (
-                <CatalystCard key={s.ticker} signal={s} />
-              ))}
+          {/* Scanned but no signals at all (quiet market) */}
+          {!scanning && signals.length === 0 && lastScannedAt && (
+            <div className="px-4 py-5 text-center">
+              <div className="text-xs text-gray-400 mb-2">🌙 No catalysts found — quiet market</div>
+              <div className="text-[10px] text-gray-600 max-w-md mx-auto leading-relaxed">
+                Scanned {meta?.candidates ?? 0} candidates with news in last 24h, but none had
+                HIGH/CRITICAL impact + elevated volume + price gap. Try again later or switch to
+                Deep mode for full S&P+NYSE+SPEC coverage.
+              </div>
             </div>
           )}
+
+          {/* Signal cards — split into strong (≥50) vs weak (20-49) */}
+          {signals.length > 0 && (() => {
+            const strong = signals.filter(s => s.score >= 50)
+            const weak = signals.filter(s => s.score < 50)
+            return (
+              <div>
+                {/* Strong section */}
+                {strong.length > 0 && (
+                  <div className="divide-y divide-fuchsia-500/10">
+                    {strong.map(s => (
+                      <CatalystCard key={s.ticker} signal={s} />
+                    ))}
+                  </div>
+                )}
+
+                {/* No strong — show banner before weak */}
+                {strong.length === 0 && weak.length > 0 && (
+                  <div className="bg-yellow-500/5 border-b border-yellow-500/20 px-4 py-2.5 text-[11px] text-yellow-300">
+                    🟡 No strong catalysts (score ≥50) — showing {weak.length} lower-confidence candidates below.
+                    These have news but lack the volume/gap action that defines a true catalyst.
+                  </div>
+                )}
+
+                {/* Weak section — collapsible */}
+                {weak.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setShowWeak(v => !v)}
+                      className="w-full px-4 py-2 flex items-center justify-between text-[11px] text-gray-500 hover:bg-fuchsia-500/[0.03] border-t border-fuchsia-500/10 transition-colors"
+                    >
+                      <span>
+                        🟡 Lower confidence ({weak.length}) · news only, no vol/gap action
+                      </span>
+                      {showWeak ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                    </button>
+                    {showWeak && (
+                      <div className="divide-y divide-fuchsia-500/10 opacity-75">
+                        {weak.map(s => (
+                          <CatalystCard key={s.ticker} signal={s} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </>
       )}
     </div>

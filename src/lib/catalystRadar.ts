@@ -142,8 +142,9 @@ async function scanTicker(
       reasons.push(`📊 Gap ${gapPct >= 0 ? "+" : ""}${gapPct.toFixed(1)}%`)
     }
 
-    // Threshold — must have at least news OR major price/volume event
-    if (score < 50) return null
+    // Lower threshold (20) — keep weak signals visible to user as "lower confidence"
+    // UI will split into "strong" (≥50) vs "weak" (20-49) so user understands the gap.
+    if (score < 20) return null
 
     // Determine action
     let action: "LONG" | "SHORT" | "WATCH" = "WATCH"
