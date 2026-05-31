@@ -16,6 +16,7 @@
 
 import { NextResponse } from "next/server"
 import type { OptionsChain, OptionContract } from "@/lib/dealerGamma"
+import { getYahooAuth, withCrumb, yahooHeaders } from "@/lib/yahooCrumb"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -75,19 +76,31 @@ export async function GET(request: Request) {
   const numExpirations = Math.max(1, Math.min(6, Number(searchParams.get("expirations") || 3)))
 
   try {
+    // Yahoo's v7 options endpoint now requires crumb authentication
+    const auth = await getYahooAuth()
+    if (!auth) {
+      return NextResponse.json(
+        { error: "yahoo_auth_failed", message: "Could not obtain Yahoo crumb (may be blocked region)" },
+        { status: 502 },
+      )
+    }
+
     // 1. Initial call — get expiration list + first chain
-    const firstUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`
+    const firstUrl = withCrumb(
+      `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}`,
+      auth.crumb,
+    )
     const firstRes = await fetch(firstUrl, {
       signal: AbortSignal.timeout(8000),
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-      },
+      headers: yahooHeaders(auth),
       next: { revalidate: 900 },  // 15 min
     })
 
     if (!firstRes.ok) {
-      return NextResponse.json({ error: "yahoo_initial_failed", status: firstRes.status }, { status: 502 })
+      return NextResponse.json(
+        { error: "yahoo_initial_failed", status: firstRes.status },
+        { status: 502 },
+      )
     }
 
     const firstData = await firstRes.json() as YahooOptionsResponse
@@ -110,13 +123,16 @@ export async function GET(request: Request) {
       for (const p of opt.puts)  allPuts.push(normalize(p,  opt.expirationDate))
     }
 
-    // Fetch remaining expirations
+    // Fetch remaining expirations (crumb-authed)
     for (const exp of expirations.slice(1)) {
       try {
-        const expUrl = `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}?date=${exp}`
+        const expUrl = withCrumb(
+          `https://query2.finance.yahoo.com/v7/finance/options/${encodeURIComponent(symbol)}?date=${exp}`,
+          auth.crumb,
+        )
         const expRes = await fetch(expUrl, {
           signal: AbortSignal.timeout(6000),
-          headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" },
+          headers: yahooHeaders(auth),
           next: { revalidate: 900 },
         })
         if (!expRes.ok) continue

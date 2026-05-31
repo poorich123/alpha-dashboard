@@ -104,13 +104,16 @@ export function interpretPositioning(z: number): {
   return { signal: "NEUTRAL", contrarian: "WAIT", color: "text-gray-400", tip: "No extreme positioning — wait for clearer signal" }
 }
 
-/** Fetch via our API route to handle CORS + 5-min cache */
+/** Fetch via our API route to handle CORS + 6-hour cache */
 export async function fetchCotHistory(
   contract: CotContractKey,
   weeks = 26,
 ): Promise<CotRecord[]> {
   const url = `/api/cot?contract=${contract}&weeks=${weeks}`
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`COT fetch failed: ${res.status}`)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: "unknown" }))
+    throw new Error(body.error || body.message || `HTTP ${res.status}`)
+  }
   return await res.json() as CotRecord[]
 }

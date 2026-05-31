@@ -56,14 +56,21 @@ function CotPanel() {
   const [selected, setSelected] = useState<CotContractKey>("sp500")
   const [history, setHistory] = useState<CotRecord[]>([])
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (key: CotContractKey) => {
     setLoading(true)
+    setError(null)
     try {
       const data = await fetchCotHistory(key, 26)
+      if (data.length === 0) {
+        setError(`No COT records returned for ${COT_CONTRACTS[key].label}. Contract may have a different CFTC market name.`)
+      }
       setHistory(data)
     } catch (err) {
-      toast.error("COT fetch failed: " + (err instanceof Error ? err.message : String(err)))
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`COT fetch failed: ${msg}`)
+      toast.error("COT fetch failed")
     } finally {
       setLoading(false)
     }
@@ -127,6 +134,11 @@ function CotPanel() {
         <div className="flex items-center justify-center py-10">
           <InlineSpinner className="text-purple-400 w-5 h-5" />
           <span className="ml-2 text-gray-500 text-sm">Loading CFTC data…</span>
+        </div>
+      ) : error ? (
+        <div className="px-4 py-6 text-center">
+          <div className="text-red-400 text-sm mb-1">⚠️ {error}</div>
+          <div className="text-[10px] text-gray-600">Try a different contract or refresh — CFTC API may be temporarily unavailable</div>
         </div>
       ) : !latest ? (
         <div className="py-10 text-center text-gray-500 text-sm">No data available</div>
@@ -265,14 +277,17 @@ function GexPanel() {
   const [symbol, setSymbol] = useState<typeof GEX_SYMBOLS[number]>("SPY")
   const [snap, setSnap] = useState<GexSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (sym: string) => {
     setLoading(true)
+    setError(null)
     try {
       const s = await fetchGex(sym)
       setSnap(s)
     } catch (err) {
-      toast.error("GEX fetch failed: " + (err instanceof Error ? err.message : String(err)))
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`Yahoo options API: ${msg}. Crumb auth may have expired — server will retry on next request.`)
     } finally {
       setLoading(false)
     }
@@ -323,6 +338,14 @@ function GexPanel() {
         <div className="flex items-center justify-center py-10">
           <InlineSpinner className="text-cyan-400 w-5 h-5" />
           <span className="ml-2 text-gray-500 text-sm">Computing dealer gamma…</span>
+        </div>
+      ) : error ? (
+        <div className="px-4 py-6 text-center">
+          <div className="text-red-400 text-sm mb-1">⚠️ {error}</div>
+          <div className="text-[10px] text-gray-600 max-w-md mx-auto">
+            Yahoo&apos;s options endpoint now requires crumb authentication. The server attempts
+            to fetch+cache this automatically — try the Refresh button or wait 1 min.
+          </div>
         </div>
       ) : !snap ? (
         <div className="py-10 text-center text-gray-500 text-sm">No data</div>
@@ -450,14 +473,17 @@ function HoldingsPanel() {
   const [input, setInput] = useState("NVDA")
   const [snap, setSnap] = useState<HoldingsSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async (t: string) => {
     setLoading(true)
+    setError(null)
     try {
       const s = await fetchHoldings(t)
       setSnap(s)
     } catch (err) {
-      toast.error("Holdings fetch failed: " + (err instanceof Error ? err.message : String(err)))
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`Yahoo holdings API: ${msg}. Crumb auth required.`)
     } finally {
       setLoading(false)
     }
@@ -505,6 +531,11 @@ function HoldingsPanel() {
         <div className="flex items-center justify-center py-10">
           <InlineSpinner className="text-amber-400 w-5 h-5" />
           <span className="ml-2 text-gray-500 text-sm">Fetching 13F data…</span>
+        </div>
+      ) : error ? (
+        <div className="px-4 py-6 text-center">
+          <div className="text-red-400 text-sm mb-1">⚠️ {error}</div>
+          <div className="text-[10px] text-gray-600">Yahoo&apos;s quoteSummary endpoint requires authentication. Server will retry — refresh in 1 min.</div>
         </div>
       ) : !snap ? (
         <div className="py-10 text-center text-gray-500 text-sm">No data</div>

@@ -13,6 +13,7 @@
 
 import { NextResponse } from "next/server"
 import type { HoldingsSnapshot, InstitutionalHolder } from "@/lib/institutionalHoldings"
+import { getYahooAuth, withCrumb, yahooHeaders } from "@/lib/yahooCrumb"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -46,15 +47,25 @@ export async function GET(request: Request) {
   if (!symbol) return NextResponse.json({ error: "missing_symbol" }, { status: 400 })
 
   const modules = "institutionOwnership,majorHoldersBreakdown"
-  const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`
 
   try {
+    // Yahoo's v10 quoteSummary endpoint requires crumb auth
+    const auth = await getYahooAuth()
+    if (!auth) {
+      return NextResponse.json(
+        { error: "yahoo_auth_failed", message: "Could not obtain Yahoo crumb (may be blocked region)" },
+        { status: 502 },
+      )
+    }
+
+    const url = withCrumb(
+      `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(symbol)}?modules=${modules}`,
+      auth.crumb,
+    )
+
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8000),
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
-      },
+      headers: yahooHeaders(auth),
       next: { revalidate: 12 * 3600 },
     })
 

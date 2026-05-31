@@ -24,32 +24,39 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 // Map of contract → which dataset + market filter substring
+//
+// Verified against Socrata API (CFTC.gov):
+//   gpe5-46if = "Traders in Financial Futures (TFF) - Futures Only"
+//               Has lev_money_positions_long + asset_mgr_positions_long fields
+//   72hh-3qpy = "Disaggregated - Futures Only"
+//               Has m_money_positions_long_all + prod_merc_positions_long fields
 const DATASET_MAP: Record<CotContractKey, { dataset: string; marketLike: string }> = {
-  sp500:   { dataset: "72hh-3qpy", marketLike: "E-MINI S&P 500" },
-  nasdaq:  { dataset: "72hh-3qpy", marketLike: "NASDAQ-100" },
-  russell: { dataset: "72hh-3qpy", marketLike: "RUSSELL 2000" },
-  dxy:     { dataset: "72hh-3qpy", marketLike: "U.S. DOLLAR INDEX" },
-  vix:     { dataset: "72hh-3qpy", marketLike: "VIX FUTURES" },
-  gold:    { dataset: "kh3c-gbw2", marketLike: "GOLD" },
-  oil:     { dataset: "kh3c-gbw2", marketLike: "CRUDE OIL, LIGHT SWEET" },
-  btc:     { dataset: "kh3c-gbw2", marketLike: "BITCOIN" },
+  sp500:   { dataset: "gpe5-46if", marketLike: "E-MINI S&P 500" },
+  nasdaq:  { dataset: "gpe5-46if", marketLike: "NASDAQ-100" },
+  russell: { dataset: "gpe5-46if", marketLike: "RUSSELL 2000" },
+  dxy:     { dataset: "gpe5-46if", marketLike: "U.S. DOLLAR INDEX" },
+  vix:     { dataset: "gpe5-46if", marketLike: "VIX FUTURES" },
+  gold:    { dataset: "72hh-3qpy", marketLike: "GOLD" },
+  oil:     { dataset: "72hh-3qpy", marketLike: "CRUDE OIL, LIGHT SWEET" },
+  btc:     { dataset: "72hh-3qpy", marketLike: "BITCOIN" },
 }
 
 /**
  * Normalize a Socrata row to CotRecord.
- * Field names differ between TFF and Disaggregated datasets — we handle both.
  *
- * TFF fields:
- *   lev_money_positions_long_all / lev_money_positions_short_all = Leveraged Funds (hedge funds)
- *   asset_mgr_positions_long_all / asset_mgr_positions_short_all = Asset Managers
- *   dealer_positions_long_all    / dealer_positions_short_all    = Dealers
- *   nonrept_positions_long_all   / nonrept_positions_short_all   = Non-reportable (retail)
+ * Field names differ between TFF and Disaggregated — verified against actual API:
  *
- * Disaggregated fields:
- *   m_money_positions_long_all   / m_money_positions_short_all   = Managed Money (≈ hedge funds)
- *   prod_merc_positions_long     / prod_merc_positions_short     = Producer/Merchant (commercials)
- *   swap_positions_long_all      / swap_positions_short_all      = Swap Dealers
- *   nonrept_positions_long_all   / nonrept_positions_short_all   = Non-reportable
+ * TFF (gpe5-46if):
+ *   lev_money_positions_long       / lev_money_positions_short       = Leveraged Funds (hedge funds)
+ *   asset_mgr_positions_long       / asset_mgr_positions_short       = Asset Managers
+ *   dealer_positions_long_all      / dealer_positions_short_all      = Dealers
+ *   nonrept_positions_long_all     / nonrept_positions_short_all     = Non-reportable (retail)
+ *
+ * Disaggregated (72hh-3qpy):
+ *   m_money_positions_long_all     / m_money_positions_short_all     = Managed Money (≈ hedge funds)
+ *   prod_merc_positions_long       / prod_merc_positions_short       = Producer/Merchant (commercials)
+ *   swap_positions_long_all        / swap__positions_short_all       = Swap Dealers (note: DOUBLE underscore!)
+ *   nonrept_positions_long_all     / nonrept_positions_short_all     = Non-reportable
  */
 function normalizeRow(row: Record<string, unknown>, dataset: string): CotRecord | null {
   const reportDate = String(row.report_date_as_yyyy_mm_dd || "").slice(0, 10)
@@ -57,25 +64,25 @@ function normalizeRow(row: Record<string, unknown>, dataset: string): CotRecord 
   const openInterest = Number(row.open_interest_all || 0)
   if (!reportDate || !openInterest) return null
 
-  const isTff = dataset === "72hh-3qpy"
+  const isTff = dataset === "gpe5-46if"
 
-  // Leveraged Funds / Managed Money (hedge funds equivalent)
+  // Leveraged Funds (TFF) / Managed Money (Disaggregated) — hedge funds equivalent
   const levFundLong = Number(
-    isTff ? row.lev_money_positions_long_all : row.m_money_positions_long_all
+    isTff ? row.lev_money_positions_long : row.m_money_positions_long_all
   ) || 0
   const levFundShort = Number(
-    isTff ? row.lev_money_positions_short_all : row.m_money_positions_short_all
+    isTff ? row.lev_money_positions_short : row.m_money_positions_short_all
   ) || 0
 
-  // Asset Managers (only in TFF) / Swap Dealers (Disaggregated)
+  // Asset Managers (TFF only) / Swap Dealers (Disaggregated, note double-underscore for short!)
   const assetMgrLong = Number(
-    isTff ? row.asset_mgr_positions_long_all : row.swap_positions_long_all
+    isTff ? row.asset_mgr_positions_long : row.swap_positions_long_all
   ) || 0
   const assetMgrShort = Number(
-    isTff ? row.asset_mgr_positions_short_all : row.swap_positions_short_all
+    isTff ? row.asset_mgr_positions_short : row["swap__positions_short_all"]
   ) || 0
 
-  // Dealers / Producers
+  // Dealers (TFF) / Producer-Merchant (Disaggregated, commercials)
   const dealerLong = Number(
     isTff ? row.dealer_positions_long_all : row.prod_merc_positions_long
   ) || 0
@@ -83,7 +90,7 @@ function normalizeRow(row: Record<string, unknown>, dataset: string): CotRecord 
     isTff ? row.dealer_positions_short_all : row.prod_merc_positions_short
   ) || 0
 
-  // Non-reportable (retail)
+  // Non-reportable (retail) — same field in both datasets
   const nonReptLong  = Number(row.nonrept_positions_long_all  || 0)
   const nonReptShort = Number(row.nonrept_positions_short_all || 0)
 
