@@ -21,6 +21,7 @@ import {
   Shield,
   LogOut,
   Sparkles,
+  Activity,
 } from "lucide-react"
 import { getSupabaseBrowser, hasSupabaseConfigured } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -33,6 +34,7 @@ const navItems = [
   { href: "/market", icon: Sparkles, label: "Market", highlight: true },
   { href: "/analyzer", icon: ScanLine, label: "Analyzer", highlight: true },
   { href: "/macro", icon: Globe, label: "Macro Risk", highlight: true },
+  { href: "/smartmoney", icon: Activity, label: "Smart Money", highlight: true },
   { href: "/portfolio", icon: Briefcase, label: "Portfolio" },
   { href: "/charts", icon: LineChart, label: "Charts" },
   { href: "/rating", icon: Star, label: "Rating" },

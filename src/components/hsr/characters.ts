@@ -82,4 +82,5 @@ export const PAGE_CHARACTERS: Record<string, HSRCharacter> = {
   watchlist:  HSR_CHARACTERS[6], // Robin
   swing:      HSR_CHARACTERS[4], // Firefly
   analyzer:   HSR_CHARACTERS[8], // Jingliu
+  smartmoney: HSR_CHARACTERS[5], // Black Swan — institutional intel
 }
