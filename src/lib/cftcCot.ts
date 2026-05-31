@@ -60,14 +60,14 @@ export interface CotRecord {
 
 /** Pre-defined contracts of interest with their CFTC market names */
 export const COT_CONTRACTS = {
-  sp500:   { label: "S&P 500 (E-mini)",  market: "E-MINI S&P 500",      emoji: "📈" },
-  nasdaq:  { label: "Nasdaq-100 (E-mini)", market: "NASDAQ-100",        emoji: "💻" },
-  russell: { label: "Russell 2000",       market: "RUSSELL 2000",       emoji: "🇺🇸" },
-  dxy:     { label: "Dollar Index (DXY)", market: "U.S. DOLLAR INDEX",  emoji: "💵" },
-  vix:     { label: "VIX",                market: "VIX",                emoji: "😱" },
-  gold:    { label: "Gold",               market: "GOLD",               emoji: "🥇" },
-  oil:     { label: "Crude Oil (WTI)",    market: "CRUDE OIL",          emoji: "🛢️" },
-  btc:     { label: "Bitcoin",            market: "BITCOIN",            emoji: "₿"  },
+  sp500:   { label: "S&P 500 (E-mini)",  market: "E-MINI S&P 500",          emoji: "📈" },
+  nasdaq:  { label: "Nasdaq-100",        market: "NASDAQ-100 Consolidated", emoji: "💻" },
+  russell: { label: "Russell 2000",      market: "RUSSELL E-MINI",          emoji: "🇺🇸" },
+  dxy:     { label: "Dollar Index",      market: "U.S. DOLLAR INDEX",       emoji: "💵", deprecated: true },
+  vix:     { label: "VIX",               market: "VIX FUTURES",             emoji: "😱" },
+  gold:    { label: "Gold",              market: "GOLD",                    emoji: "🥇" },
+  oil:     { label: "Crude Oil (WTI)",   market: "CRUDE OIL, LIGHT SWEET-WTI", emoji: "🛢️" },
+  btc:     { label: "Bitcoin",           market: "BITCOIN",                 emoji: "₿"  },
 } as const
 
 export type CotContractKey = keyof typeof COT_CONTRACTS

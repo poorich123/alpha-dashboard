@@ -23,22 +23,30 @@ import { COT_CONTRACTS, type CotContractKey, type CotRecord } from "@/lib/cftcCo
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
-// Map of contract → which dataset + market filter substring
+// Map of contract → which dataset + EXACT contract_market_name
 //
-// Verified against Socrata API (CFTC.gov):
-//   gpe5-46if = "Traders in Financial Futures (TFF) - Futures Only"
-//               Has lev_money_positions_long + asset_mgr_positions_long fields
-//   72hh-3qpy = "Disaggregated - Futures Only"
-//               Has m_money_positions_long_all + prod_merc_positions_long fields
-const DATASET_MAP: Record<CotContractKey, { dataset: string; marketLike: string }> = {
-  sp500:   { dataset: "gpe5-46if", marketLike: "E-MINI S&P 500" },
-  nasdaq:  { dataset: "gpe5-46if", marketLike: "NASDAQ-100" },
-  russell: { dataset: "gpe5-46if", marketLike: "RUSSELL 2000" },
-  dxy:     { dataset: "gpe5-46if", marketLike: "U.S. DOLLAR INDEX" },
-  vix:     { dataset: "gpe5-46if", marketLike: "VIX FUTURES" },
-  gold:    { dataset: "72hh-3qpy", marketLike: "GOLD" },
-  oil:     { dataset: "72hh-3qpy", marketLike: "CRUDE OIL, LIGHT SWEET" },
-  btc:     { dataset: "72hh-3qpy", marketLike: "BITCOIN" },
+// Verified live against the API — uses exact match on contract_market_name
+// (more reliable than LIKE on market_and_exchange_names which catches MICRO
+// variants and dividend-strip contracts with different positioning).
+//
+//   gpe5-46if = TFF (Traders in Financial Futures) — Futures Only
+//               Fields: lev_money_positions_long, asset_mgr_positions_long,
+//                       dealer_positions_long_all, nonrept_positions_long_all
+//   72hh-3qpy = Disaggregated — Futures Only
+//               Fields: m_money_positions_long_all, prod_merc_positions_long,
+//                       swap_positions_long_all, nonrept_positions_long_all
+//
+// dxy: CFTC stopped reporting USDX in TFF after 2022-02 — flagged DEPRECATED.
+const DATASET_MAP: Record<CotContractKey, { dataset: string; contractName: string; deprecated?: string }> = {
+  sp500:   { dataset: "gpe5-46if", contractName: "E-MINI S&P 500" },
+  nasdaq:  { dataset: "gpe5-46if", contractName: "NASDAQ-100 Consolidated" },
+  russell: { dataset: "gpe5-46if", contractName: "RUSSELL E-MINI" },
+  dxy:     { dataset: "gpe5-46if", contractName: "U.S. DOLLAR INDEX",
+             deprecated: "CFTC stopped reporting USDX in TFF after Feb 2022 — no recent data" },
+  vix:     { dataset: "gpe5-46if", contractName: "VIX FUTURES" },
+  gold:    { dataset: "72hh-3qpy", contractName: "GOLD" },
+  oil:     { dataset: "72hh-3qpy", contractName: "CRUDE OIL, LIGHT SWEET-WTI" },
+  btc:     { dataset: "gpe5-46if", contractName: "BITCOIN" },  // Bitcoin futures live in TFF, not Disagg
 }
 
 /**
@@ -124,12 +132,18 @@ export async function GET(request: Request) {
   if (!cfg || !COT_CONTRACTS[contract]) {
     return NextResponse.json({ error: "invalid_contract" }, { status: 400 })
   }
+  if (cfg.deprecated) {
+    return NextResponse.json(
+      { error: "contract_deprecated", message: cfg.deprecated },
+      { status: 410 },
+    )
+  }
 
-  // Build Socrata query — filter by market name + sort by date DESC
+  // Exact match on contract_market_name — avoids MICRO/CONSOLIDATED variants
   const qs = new URLSearchParams({
-    $where: `market_and_exchange_names like '%${cfg.marketLike}%'`,
+    $where: `contract_market_name = '${cfg.contractName.replace(/'/g, "''")}'`,
     $order: "report_date_as_yyyy_mm_dd DESC",
-    $limit: String(weeks * 4),  // overfetch — multiple contracts per market name (FUT_ONLY vs COMBINED)
+    $limit: String(weeks + 4),  // small overfetch for dedup safety
   })
   const url = `https://publicreporting.cftc.gov/resource/${cfg.dataset}.json?${qs}`
 

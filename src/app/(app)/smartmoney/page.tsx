@@ -112,18 +112,22 @@ function CotPanel() {
       <div className="px-4 py-2 border-b border-[#1A2E52]/60 flex flex-wrap gap-1.5">
         {(Object.keys(COT_CONTRACTS) as CotContractKey[]).map(k => {
           const c = COT_CONTRACTS[k]
+          const isDeprecated = (c as { deprecated?: boolean }).deprecated
           return (
             <button
               key={k}
               onClick={() => setSelected(k)}
+              title={isDeprecated ? "CFTC stopped reporting this contract" : undefined}
               className={cn(
                 "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors",
                 selected === k
                   ? "bg-purple-500/15 text-purple-300 border border-purple-500/40"
+                  : isDeprecated
+                  ? "text-gray-600 hover:text-gray-500 border border-transparent line-through opacity-60"
                   : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
               )}
             >
-              {c.emoji} {c.label}
+              {c.emoji} {c.label}{isDeprecated && " ⚠️"}
             </button>
           )
         })}
