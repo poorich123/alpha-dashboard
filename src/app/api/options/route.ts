@@ -93,7 +93,7 @@ export async function GET(request: Request) {
     const firstRes = await fetch(firstUrl, {
       signal: AbortSignal.timeout(8000),
       headers: yahooHeaders(auth),
-      next: { revalidate: 900 },  // 15 min
+      cache: "no-store",  // bypass Next ISR cache; rely on Cache-Control header for CDN
     })
 
     if (!firstRes.ok) {
@@ -133,7 +133,7 @@ export async function GET(request: Request) {
         const expRes = await fetch(expUrl, {
           signal: AbortSignal.timeout(6000),
           headers: yahooHeaders(auth),
-          next: { revalidate: 900 },
+          cache: "no-store",
         })
         if (!expRes.ok) continue
         const expData = await expRes.json() as YahooOptionsResponse

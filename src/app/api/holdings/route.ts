@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(8000),
       headers: yahooHeaders(auth),
-      next: { revalidate: 12 * 3600 },
+      cache: "no-store",
     })
 
     if (!res.ok) {

@@ -151,8 +151,9 @@ export async function GET(request: Request) {
     const res = await fetch(url, {
       signal: AbortSignal.timeout(10000),
       headers: { "Accept": "application/json" },
-      // Cache 6 hours (COT only updates weekly)
-      next: { revalidate: 6 * 3600 },
+      // Bypass Next.js ISR fetch cache — was holding broken responses from
+      // pre-fix code. Browser/CDN cache layer still 6h via Cache-Control below.
+      cache: "no-store",
     })
 
     if (!res.ok) {
@@ -183,8 +184,15 @@ export async function GET(request: Request) {
       normalized[i].levFundShortChange = normalized[i].levFundShort - normalized[i + 1].levFundShort
     }
 
+    // Short cache (5 min) while we stabilize; long cache caused stale broken-data bugs
     return NextResponse.json(normalized, {
-      headers: { "Cache-Control": "public, max-age=21600, s-maxage=21600" },
+      headers: {
+        "Cache-Control": "public, max-age=300, s-maxage=300",
+        "X-COT-Contract": cfg.contractName,
+        "X-COT-Dataset": cfg.dataset,
+        "X-COT-RawCount": String(raw.length),
+        "X-COT-NormalizedCount": String(normalized.length),
+      },
     })
   } catch (err) {
     return NextResponse.json(
