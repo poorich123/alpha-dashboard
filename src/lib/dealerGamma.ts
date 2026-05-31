@@ -217,10 +217,16 @@ export function computeGex(chain: OptionsChain): GexSnapshot {
   }
 }
 
-/** Fetch options chain via our API route (handles CORS) */
+/** Fetch options chain via our API route (handles CORS + auth) */
 export async function fetchOptionsChain(symbol: string): Promise<OptionsChain> {
-  const res = await fetch(`/api/options?symbol=${encodeURIComponent(symbol)}`)
-  if (!res.ok) throw new Error(`Options fetch failed: ${res.status}`)
+  const res = await fetch(
+    `/api/options?symbol=${encodeURIComponent(symbol)}&_t=${Date.now()}`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: "unknown" }))
+    throw new Error(body.error || body.message || `HTTP ${res.status}`)
+  }
   return await res.json() as OptionsChain
 }
 

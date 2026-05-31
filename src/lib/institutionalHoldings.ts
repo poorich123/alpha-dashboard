@@ -46,8 +46,14 @@ export interface HoldingsSnapshot {
 }
 
 export async function fetchHoldings(ticker: string): Promise<HoldingsSnapshot> {
-  const res = await fetch(`/api/holdings?symbol=${encodeURIComponent(ticker)}`)
-  if (!res.ok) throw new Error(`Holdings fetch failed: ${res.status}`)
+  const res = await fetch(
+    `/api/holdings?symbol=${encodeURIComponent(ticker)}&_t=${Date.now()}`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: "unknown" }))
+    throw new Error(body.error || body.message || `HTTP ${res.status}`)
+  }
   return await res.json() as HoldingsSnapshot
 }
 

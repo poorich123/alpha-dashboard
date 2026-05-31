@@ -104,13 +104,15 @@ export function interpretPositioning(z: number): {
   return { signal: "NEUTRAL", contrarian: "WAIT", color: "text-gray-400", tip: "No extreme positioning — wait for clearer signal" }
 }
 
-/** Fetch via our API route to handle CORS + 6-hour cache */
+/** Fetch via our API route, bypassing browser cache. Server enforces its own. */
 export async function fetchCotHistory(
   contract: CotContractKey,
   weeks = 26,
 ): Promise<CotRecord[]> {
-  const url = `/api/cot?contract=${contract}&weeks=${weeks}`
-  const res = await fetch(url)
+  // Cache-busting query param ensures no browser/CDN serves a stale response
+  // from when the API was broken.
+  const url = `/api/cot?contract=${contract}&weeks=${weeks}&_t=${Date.now()}`
+  const res = await fetch(url, { cache: "no-store" })
   if (!res.ok) {
     const body = await res.json().catch(() => ({ error: "unknown" }))
     throw new Error(body.error || body.message || `HTTP ${res.status}`)

@@ -184,10 +184,11 @@ export async function GET(request: Request) {
       normalized[i].levFundShortChange = normalized[i].levFundShort - normalized[i + 1].levFundShort
     }
 
-    // Short cache (5 min) while we stabilize; long cache caused stale broken-data bugs
+    // No cache while stabilizing — old broken responses were being held by Vercel
+    // edge cache for hours after we fixed the code. Will re-enable later.
     return NextResponse.json(normalized, {
       headers: {
-        "Cache-Control": "public, max-age=300, s-maxage=300",
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
         "X-COT-Contract": cfg.contractName,
         "X-COT-Dataset": cfg.dataset,
         "X-COT-RawCount": String(raw.length),
