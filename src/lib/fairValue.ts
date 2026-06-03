@@ -63,7 +63,7 @@ export interface FundamentalsRaw {
 
 // ─── Result types ──────────────────────────────────────────────────────────────
 
-export type ValuationMethod = "DCF" | "Comparable" | "Asset"
+export type ValuationMethod = "DCF" | "Comparable" | "EV/Sales" | "Asset" | "Analyst"
 
 export interface MethodValuation {
   method: ValuationMethod
@@ -226,7 +226,11 @@ export function computeComparable(f: FundamentalsRaw): MethodValuation {
   const g = f.longTermGrowth ?? f.nextYearGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.08
   const rawGrowthPct = g * 100
   const growthPct = clamp(rawGrowthPct, 0, 30)
-  const fairPE = clamp(growthPct * 1.5, 8, 35)   // PEG ≈ 1.5
+  // Market-realistic fair P/E: ~11× base for a no-growth profitable company,
+  // rising ~1.1× per point of growth, capped 10–38× (mirrors how the market
+  // actually pays up for growth — a flat PEG×1.5 floored at 8 was too punitive
+  // for quality compounders like KO).
+  const fairPE = clamp(11 + growthPct * 1.1, 10, 38)
   const value = eps * fairPE
   const usedEps = (f.forwardEps && f.forwardEps > 0) ? "forward" : "trailing"
   const capped = rawGrowthPct > 30
@@ -238,7 +242,7 @@ export function computeComparable(f: FundamentalsRaw): MethodValuation {
     weight: 0,
     assumptions: [
       `${usedEps} EPS $${eps.toFixed(2)}`,
-      `Fair P/E ${fairPE.toFixed(1)}× (PEG 1.5 บน growth ${growthPct.toFixed(0)}%${capped ? ` · cap จาก ${rawGrowthPct.toFixed(0)}%` : ""})`,
+      `Fair P/E ${fairPE.toFixed(0)}× (base 11× + growth ${growthPct.toFixed(0)}%${capped ? ` · cap จาก ${rawGrowthPct.toFixed(0)}%` : ""})`,
       f.forwardPE != null ? `เทียบ forward P/E ปัจจุบัน ${f.forwardPE.toFixed(1)}×` : "",
     ].filter(Boolean),
   }
@@ -271,6 +275,62 @@ export function computeAsset(f: FundamentalsRaw): MethodValuation {
   return { method: "Asset", available: true, valuePerShare: value, weight: 0, assumptions }
 }
 
+// ─── EV/Sales (revenue multiple) ─────────────────────────────────────────────────
+// The method Wall Street uses for high-growth / not-yet-profitable companies,
+// where P/E and DCF break down. Fair EV = revenue × a growth-scaled P/S multiple,
+// then subtract net debt for equity value.
+
+export function computeEvSales(f: FundamentalsRaw): MethodValuation {
+  const rev = f.totalRevenue
+  const shares = f.sharesOutstanding
+  const base: MethodValuation = {
+    method: "EV/Sales", available: false, valuePerShare: null, weight: 0, assumptions: [],
+  }
+  if (rev == null || rev <= 0 || shares == null || shares <= 0) {
+    base.caveat = "ไม่มีรายได้/จำนวนหุ้น — ข้าม EV/Sales"
+    return base
+  }
+
+  const g = f.longTermGrowth ?? f.nextYearGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.05
+  const growthPct = clamp(g * 100, 0, 40)
+  const ps = clamp(1 + growthPct * 0.30, 1, 12)   // ~1× at flat, ~12× at hyper-growth
+  const netDebt = f.netDebt ?? 0
+  const value = (rev * ps - netDebt) / shares
+
+  if (!Number.isFinite(value) || value <= 0) {
+    base.caveat = "ผล EV/Sales ไม่สมเหตุผล (net debt สูงมาก) — ข้าม"
+    return base
+  }
+
+  return {
+    method: "EV/Sales",
+    available: true,
+    valuePerShare: value,
+    weight: 0,
+    assumptions: [
+      `Revenue $${(rev / 1e9).toFixed(2)}B`,
+      `P/S ${ps.toFixed(1)}× (growth-scaled ${growthPct.toFixed(0)}%)`,
+      f.netDebt != null ? `หัก net debt $${(f.netDebt / 1e9).toFixed(2)}B` : "",
+    ].filter(Boolean),
+  }
+}
+
+// ─── Analyst consensus (Wall Street target) ──────────────────────────────────────
+
+export function computeAnalystTarget(f: FundamentalsRaw): MethodValuation {
+  const t = f.targetMeanPrice
+  if (t == null || t <= 0) {
+    return { method: "Analyst", available: false, valuePerShare: null, weight: 0, assumptions: [], caveat: "ไม่มีเป้านักวิเคราะห์" }
+  }
+  return {
+    method: "Analyst",
+    available: true,
+    valuePerShare: t,
+    weight: 0,
+    assumptions: ["เป้าเฉลี่ยนักวิเคราะห์ (Wall St consensus, 12 เดือน)"],
+  }
+}
+
 // ─── Margin of safety label ──────────────────────────────────────────────────────
 
 function mosLabel(mos: number): { label: MoSLabel; color: string } {
@@ -283,7 +343,12 @@ function mosLabel(mos: number): { label: MoSLabel; color: string } {
 
 // ─── Blend + main entry ──────────────────────────────────────────────────────────
 
-const BASE_WEIGHTS: Record<ValuationMethod, number> = { DCF: 0.5, Comparable: 0.35, Asset: 0.15 }
+// Blend weights ≈ how a sell-side analyst weighs methods. Analyst consensus +
+// DCF + multiples carry most of it; book value is a minor floor. Renormalized
+// over whatever methods have data for a given stock.
+const BASE_WEIGHTS: Record<ValuationMethod, number> = {
+  DCF: 0.25, Comparable: 0.20, "EV/Sales": 0.12, Analyst: 0.35, Asset: 0.08,
+}
 
 export function computeFairValue(f: FundamentalsRaw): FairValueResult {
   const price = f.currentPrice
@@ -311,11 +376,15 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
 
   const dcf = computeDCF(f)
   const comp = computeComparable(f)
+  const evs = computeEvSales(f)
   const asset = computeAsset(f)
+  const analyst = computeAnalystTarget(f)
   const methods: MethodValuation[] = [
     { method: dcf.method, available: dcf.available, valuePerShare: dcf.valuePerShare, weight: 0, assumptions: dcf.assumptions, caveat: dcf.caveat },
     comp,
+    evs,
     asset,
+    analyst,
   ]
 
   const avail = methods.filter(m => m.available && m.valuePerShare != null)
@@ -326,11 +395,12 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
   }
 
   // Per-stock weights. For loss-making companies the Asset method is just plain
-  // book value (no Graham Number) — a weak signal for a growth/backlog story —
-  // so halve its weight instead of letting it dominate after DCF drops out.
+  // book value (a weak signal for a growth/backlog story) so halve its weight.
   const weights: Record<ValuationMethod, number> = {
     DCF: BASE_WEIGHTS.DCF,
     Comparable: BASE_WEIGHTS.Comparable,
+    "EV/Sales": BASE_WEIGHTS["EV/Sales"],
+    Analyst: BASE_WEIGHTS.Analyst,
     Asset: (f.trailingEps != null && f.trailingEps <= 0) ? BASE_WEIGHTS.Asset / 2 : BASE_WEIGHTS.Asset,
   }
 
@@ -342,18 +412,21 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
 
   const base = avail.reduce((s, m) => s + (m.valuePerShare as number) * (weights[m.method] / totalW), 0)
 
-  // Range: scale the blend by the DCF sensitivity band if present, else ±15%.
-  let lowRatio = 0.85, highRatio = 1.15
-  if (dcf.available && dcf.valuePerShare && dcf.low && dcf.high) {
-    lowRatio = dcf.low / dcf.valuePerShare
-    highRatio = dcf.high / dcf.valuePerShare
+  // Range = the spread of the methods themselves (shows how much they disagree),
+  // widened slightly by the DCF sensitivity band when present.
+  const vals = avail.map(m => m.valuePerShare as number)
+  let low = Math.min(...vals)
+  let high = Math.max(...vals)
+  if (dcf.available && dcf.low && dcf.high) {
+    low = Math.min(low, dcf.low)
+    high = Math.max(high, dcf.high)
   }
 
   result.available = true
   result.methods = methods
   result.fairValueBase = base
-  result.fairValueLow = base * lowRatio
-  result.fairValueHigh = base * highRatio
+  result.fairValueLow = Math.min(low, base)
+  result.fairValueHigh = Math.max(high, base)
 
   if (price != null && price > 0 && base > 0) {
     const mos = (base - price) / base
@@ -363,9 +436,7 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
     result.mosColor = color
   }
 
-  if (avail.length < 3) {
-    result.notes.push(`ใช้ ${avail.length}/3 วิธี (บางวิธีข้อมูลไม่พอ) — ความเชื่อมั่นลดลง`)
-  }
+  result.notes.push(`ใช้ ${avail.length}/${methods.length} วิธี (${avail.map(m => m.method).join(" · ")})`)
 
   // Speculative / growth / turnaround stocks: fundamental models systematically
   // under-value them because current earnings/cash flow are depressed or negative.
@@ -379,11 +450,7 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
       negFcf ? "FCF ติดลบ" : "",
       shrinking ? `รายได้หด ${(f.revenueGrowth! * 100).toFixed(0)}%` : "",
     ].filter(Boolean).join(" · ")
-    result.notes.push(`⚠️ หุ้น growth/turnaround (${tags}) — โมเดลพื้นฐานประเมินต่ำกว่าราคาตลาดมาก เพราะตลาดให้ราคาตาม story อนาคตที่ DCF/Comparable ยังจับไม่ได้ · ใช้เป็นกรอบความเสี่ยง ไม่ใช่ราคาเป้า`)
-  }
-
-  if (f.targetMeanPrice != null && price != null) {
-    result.notes.push(`เป้านักวิเคราะห์เฉลี่ย $${f.targetMeanPrice.toFixed(2)}`)
+    result.notes.push(`⚠️ หุ้น growth/turnaround (${tags}) — มูลค่าพึ่ง EV/Sales + เป้านักวิเคราะห์มากขึ้น (DCF/P-E ใช้ไม่ได้กับหุ้นที่ยังไม่กำไร) · ใช้เป็นกรอบ ไม่ใช่ราคาเป้าตายตัว`)
   }
 
   return result

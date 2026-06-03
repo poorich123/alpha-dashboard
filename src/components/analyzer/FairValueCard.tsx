@@ -20,7 +20,7 @@ export function FairValueCard({ result, loading, error }: Props) {
         <div>
           <div className="text-sm font-bold text-white">Fair Value · Margin of Safety</div>
           <div className="text-[10px] text-gray-500">
-            DCF + Comparable + Asset · ตีมูลค่าที่ควรจะเป็นต่อหุ้น (ไม่ใช่คำแนะนำลงทุน)
+            DCF · Comparable · EV/Sales · Asset · Analyst consensus — แบบที่ sell-side ใช้ (ไม่ใช่คำแนะนำลงทุน)
           </div>
         </div>
       </div>
@@ -110,8 +110,8 @@ function FairValueBody({ result }: { result: FairValueResult }) {
 
       {/* ── 3 methods ── */}
       <div>
-        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">3 วิธีประเมิน</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-2">วิธีประเมิน (DCF · Comparable · EV/Sales · Asset · Analyst)</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
           {result.methods.map(m => <MethodCard key={m.method} m={m} price={currentPrice} />)}
         </div>
       </div>
