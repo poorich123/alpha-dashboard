@@ -55,6 +55,27 @@ export function FairValueCard({ result, loading, error }: Props) {
 function FairValueBody({ result }: { result: FairValueResult }) {
   const { currentPrice, fairValueBase, fairValueLow, fairValueHigh, marginOfSafety, mosLabel, mosColor } = result
 
+  // The raw margin of safety (FV−price)/FV explodes when FV ≪ price (e.g. a
+  // speculative stock priced far above any fundamental value → −5000%). For
+  // extreme gaps we show the intuitive multiple ("52× แพง") + bounded downside
+  // instead of the runaway percentage.
+  let heroNum = "—"
+  let heroSub: string | null = null
+  if (marginOfSafety != null && fairValueBase != null && fairValueBase > 0 && currentPrice != null && currentPrice > 0) {
+    const toFairPct = ((fairValueBase - currentPrice) / currentPrice) * 100  // bounded ≥ −100%
+    if (currentPrice > fairValueBase * 2) {
+      const mult = currentPrice / fairValueBase
+      heroNum = `${mult >= 10 ? mult.toFixed(0) : mult.toFixed(1)}× แพง`
+      heroSub = `ราคาสูงกว่ามูลค่าประเมิน · ต้องลง ${Math.abs(toFairPct).toFixed(0)}% ถึงจะถึง FV`
+    } else if (fairValueBase > currentPrice * 2) {
+      const mult = fairValueBase / currentPrice
+      heroNum = `${mult >= 10 ? mult.toFixed(0) : mult.toFixed(1)}× ถูก`
+      heroSub = `upside +${toFairPct.toFixed(0)}% ถึงมูลค่าประเมิน`
+    } else {
+      heroNum = `${marginOfSafety >= 0 ? "+" : ""}${(marginOfSafety * 100).toFixed(1)}%`
+    }
+  }
+
   return (
     <div className="p-4 space-y-4">
       {/* ── Margin of Safety hero ── */}
@@ -64,12 +85,11 @@ function FairValueBody({ result }: { result: FairValueResult }) {
         mosLabel === "Fair Value" ? "border-yellow-500/40 bg-yellow-500/5" :
         "border-red-500/40 bg-red-500/5",
       )}>
-        <div>
+        <div className="min-w-[150px]">
           <div className="text-[10px] text-gray-500 uppercase tracking-wider">Margin of Safety</div>
-          <div className={cn("text-3xl font-bold font-mono", mosColor)}>
-            {marginOfSafety != null ? `${marginOfSafety >= 0 ? "+" : ""}${(marginOfSafety * 100).toFixed(1)}%` : "—"}
-          </div>
+          <div className={cn("text-3xl font-bold font-mono", mosColor)}>{heroNum}</div>
           <div className={cn("text-sm font-semibold", mosColor)}>{mosLabel || "—"}</div>
+          {heroSub && <div className="text-[10px] text-gray-500 mt-0.5">{heroSub}</div>}
         </div>
         <div className="flex-1 min-w-[180px]">
           <FairValueBar price={currentPrice} low={fairValueLow} base={fairValueBase} high={fairValueHigh} />

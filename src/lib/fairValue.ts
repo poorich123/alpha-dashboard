@@ -351,6 +351,22 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
   if (avail.length < 3) {
     result.notes.push(`ใช้ ${avail.length}/3 วิธี (บางวิธีข้อมูลไม่พอ) — ความเชื่อมั่นลดลง`)
   }
+
+  // Speculative / growth / turnaround stocks: fundamental models systematically
+  // under-value them because current earnings/cash flow are depressed or negative.
+  // Flag this so a huge "Expensive" gap isn't mistaken for a precise target.
+  const negEarnings = f.trailingEps != null && f.trailingEps < 0
+  const negFcf = f.freeCashflow != null && f.freeCashflow < 0
+  const shrinking = f.revenueGrowth != null && f.revenueGrowth < 0
+  if (negEarnings || negFcf || shrinking) {
+    const tags = [
+      negEarnings ? "ขาดทุน (EPS ติดลบ)" : "",
+      negFcf ? "FCF ติดลบ" : "",
+      shrinking ? `รายได้หด ${(f.revenueGrowth! * 100).toFixed(0)}%` : "",
+    ].filter(Boolean).join(" · ")
+    result.notes.push(`⚠️ หุ้น growth/turnaround (${tags}) — โมเดลพื้นฐานประเมินต่ำกว่าราคาตลาดมาก เพราะตลาดให้ราคาตาม story อนาคตที่ DCF/Comparable ยังจับไม่ได้ · ใช้เป็นกรอบความเสี่ยง ไม่ใช่ราคาเป้า`)
+  }
+
   if (f.targetMeanPrice != null && price != null) {
     result.notes.push(`เป้านักวิเคราะห์เฉลี่ย $${f.targetMeanPrice.toFixed(2)}`)
   }
