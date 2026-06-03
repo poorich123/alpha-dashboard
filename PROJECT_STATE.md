@@ -20,9 +20,13 @@
 - **Tailwind CSS v4** + Shadcn/ui
 - **Zustand** for state
 - **Supabase** (Postgres + Auth + RLS)
-- **Yahoo Finance** via `/api/yfinance` proxy
+- **Yahoo Finance** via `/api/yfinance` + `/api/holdings` + `/api/fundamentals` (crumb auth in `yahooCrumb.ts`)
 - **Finnhub** for quotes/news/company info
+- **CFTC** Socrata API (COT) · **SEC EDGAR** 13F-HR · **OpenFIGI** (CUSIP→ticker)
 - **Claude API** via `/api/claude` (anthropic-claude-sonnet-4-5)
+
+**Optional env vars:** `OPENFIGI_API_KEY` (faster/larger CUSIP batches; works without),
+`SEC_USER_AGENT` (SEC etiquette — set to a real contact email).
 - **HSR character theme** (images from `enka.network/ui/hsr/SpriteOutput/`)
 
 ## 📂 Critical Files
@@ -45,12 +49,28 @@ src/lib/
   newsMonitor.ts         — News alert + sentiment scoring
   backup.ts              — File-based portfolio backup
   technical.ts           — RSI/EMA/MACD/BB/Support-Resistance calculations
+  yahooCrumb.ts          — Yahoo crumb/cookie auth (v7 options + v10 quoteSummary)
+  cftcCot.ts             — CFTC COT hedge-fund positioning (Socrata API)
+  dealerGamma.ts         — Dealer GEX from Yahoo options chain
+  institutionalHoldings.ts — Per-stock 13F holders + smart money score
+  fairValue.ts           — ★ Fair Value engine: DCF + Comparable + Asset + MoS
+  convictionFunds.ts     — ★ Conviction fund roster + 13F QoQ diff + overlap
+
+src/app/api/
+  yfinance/route.ts      — Yahoo candles proxy
+  options/route.ts       — Yahoo options chain (GEX)
+  cot/route.ts           — CFTC COT proxy
+  holdings/route.ts      — Per-stock 13F holders (Yahoo quoteSummary)
+  fundamentals/route.ts  — ★ Valuation inputs (Yahoo quoteSummary, 8 modules)
+  fund-holdings/route.ts — ★ SEC EDGAR 13F-HR parse + diff + OpenFIGI ticker map
+  claude/route.ts        — Claude API proxy
 
 src/app/(app)/
   market/page.tsx        — TP24-style screener
-  analyzer/page.tsx      — Stock deep-dive analyzer
+  analyzer/page.tsx      — Stock deep-dive analyzer (+ Fair Value card)
   macro/page.tsx         — Macro risk dashboard
   strategy/page.tsx      — Market regime + position sizing
+  smartmoney/page.tsx    — COT + Dealer GEX + Conviction Fund Tracker + per-stock 13F
   news/page.tsx          — News with per-ticker grouping + sentiment
   dashboard/page.tsx     — Portfolio overview
   portfolio/page.tsx     — Portfolio CRUD
@@ -59,7 +79,8 @@ src/app/(app)/
 
 src/components/market/   — Sparkline, IndicesBar, StockTable
 src/components/analyzer/ — AnalyzerHeader, AnalyzerChart, TechnicalThesis,
-                           TrendGauge, EntryStrategyCard, MarketSnapshot
+                           TrendGauge, EntryStrategyCard, MarketSnapshot,
+                           FairValueCard (★ DCF/Comparable/Asset + margin of safety)
 src/components/hsr/      — HSRHeroBanner, characters.ts
 src/middleware.ts        — Auth gate (Supabase session check)
 supabase/schema.sql      — Full DB schema with RLS
@@ -74,6 +95,15 @@ supabase/schema.sql      — Full DB schema with RLS
 - **Phase 5:** Macro Risk monitor + Strategy regime detection
 - **Phase 6:** News page with per-ticker grouping + sentiment
 - **Phase 7:** Sector groups from Rocket Tool reference
+- **Phase 8:** Smart Money dashboard (CFTC COT + Dealer GEX + per-stock 13F)
+- **Phase 9:** Valuation suite —
+  - **Fair Value engine** (`fairValue.ts`): DCF + Comparable (PEG≈1.5) + Asset
+    (Graham Number) blended → **Margin of Safety**; shown on Analyzer page.
+    ETF/insufficient-data degrades gracefully (no throw).
+  - **Conviction Fund Tracker** (`convictionFunds.ts` + `fund-holdings` route):
+    SEC EDGAR 13F-HR for 5 funds (Druckenmiller/Ackman/Tiger/Coatue/Aschenbrenner),
+    QoQ diff NEW/ADD/TRIM/EXIT + $ + portfolio overlap. Replaces passive 13F as
+    Smart Money panel #3. Options excluded; value in actual dollars (2023+ format).
 
 ## 🎯 4 Market Categories
 
@@ -88,6 +118,15 @@ Each can be filtered by:
 - **Signal:** All / Buy+ / Strong Buy / HIGH Conf
 - **Sector:** Mag7, Semi, Data Center, Software, Defense, Space, Pharma, Energy, Finance, Dividend, Speculative, Crypto
 - **Technical:** Near support, Broke resistance (uses 52w high), RSI>70, RSI<30, Above/Below EMA50
+
+## 🗺️ Valuation Roadmap (Phase 1 ✅ done · Phase 2/3 pending)
+
+- ✅ **Phase 1:** Fair Value engine + Conviction Fund Tracker (see Phase 9 above)
+- 🟡 **Phase 2 (next):**
+  - **Bubble Score per stock** (Dalio 6-point) — integrate into existing Analyzer
+  - **Correlation Matrix** — per bucket, not whole portfolio
+- 🟢 **Phase 3:**
+  - **Dalio Regime Detector** — add into existing Macro Risk page (no new page)
 
 ## 🐛 Known Issues / Future Work
 

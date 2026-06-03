@@ -1,0 +1,359 @@
+/**
+ * Fair Value / Intrinsic Value Engine
+ * ─────────────────────────────────────
+ * Three independent valuation methods + a blended estimate and margin of safety.
+ *
+ *   1. DCF (Discounted Cash Flow) — project FCF 10y, discount at CAPM rate,
+ *      Gordon terminal value. The primary method for cash-generative companies.
+ *   2. Comparable (relative) — forward EPS × a growth-justified P/E (PEG≈1.5).
+ *   3. Asset-based — book value per share + Graham Number √(22.5·EPS·BVPS).
+ *
+ * Inputs come from /api/fundamentals (Yahoo quoteSummary). Every method degrades
+ * gracefully: if the data isn't there (negative FCF, ETF, no earnings) it returns
+ * `available:false` with a caveat instead of throwing.
+ *
+ * NOT investment advice — valuation is assumption-sensitive. The assumptions are
+ * surfaced explicitly so the user can judge them.
+ */
+
+// ─── Raw fundamentals (shape returned by /api/fundamentals) ────────────────────
+
+export interface FundamentalsRaw {
+  ticker: string
+  asOf: number
+  longName: string
+  currency: string
+  quoteType: string              // EQUITY | ETF | MUTUALFUND | ...
+
+  currentPrice: number | null
+  targetMeanPrice: number | null
+
+  freeCashflow: number | null
+  fcfHistory: number[]           // newest first
+  operatingCashflow: number | null
+  totalRevenue: number | null
+  revenueGrowth: number | null   // fraction (0.12 = 12%)
+  earningsGrowth: number | null
+  longTermGrowth: number | null  // analyst +5y, fraction
+  nextYearGrowth: number | null
+  returnOnEquity: number | null
+
+  sharesOutstanding: number | null
+  beta: number | null
+  forwardEps: number | null
+  trailingEps: number | null
+  bookValuePerShare: number | null
+  enterpriseValue: number | null
+  pegRatio: number | null
+
+  trailingPE: number | null
+  forwardPE: number | null
+  marketCap: number | null
+  dividendYield: number | null
+
+  totalCash: number | null
+  totalDebt: number | null
+  netDebt: number | null         // totalDebt − totalCash
+
+  totalAssets: number | null
+  totalLiabilities: number | null
+  totalStockholderEquity: number | null
+  netIncome: number | null
+}
+
+// ─── Result types ──────────────────────────────────────────────────────────────
+
+export type ValuationMethod = "DCF" | "Comparable" | "Asset"
+
+export interface MethodValuation {
+  method: ValuationMethod
+  available: boolean
+  valuePerShare: number | null
+  weight: number               // 0-1 (renormalized share in the blend)
+  assumptions: string[]
+  caveat?: string
+}
+
+export type MoSLabel = "Deep Value" | "Undervalued" | "Fair Value" | "Overvalued" | "Expensive"
+
+export interface FairValueResult {
+  ticker: string
+  longName: string
+  currentPrice: number | null
+  available: boolean             // false for ETF / insufficient data
+  unavailableReason?: string
+
+  methods: MethodValuation[]
+  fairValueBase: number | null
+  fairValueLow: number | null
+  fairValueHigh: number | null
+
+  marginOfSafety: number | null  // (base − price) / base, fraction
+  mosLabel: MoSLabel | null
+  mosColor: string               // tailwind text color class
+  analystTarget: number | null
+
+  notes: string[]
+}
+
+// ─── Constants (assumptions) ───────────────────────────────────────────────────
+
+const RISK_FREE = 0.043          // ~10y UST
+const EQUITY_RISK_PREMIUM = 0.05
+const TERMINAL_GROWTH = 0.025
+const HIGH_GROWTH_YEARS = 5
+const FADE_YEARS = 5             // years 6-10 fade g → terminal
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+const pct = (f: number) => `${(f * 100).toFixed(1)}%`
+
+// ─── Client fetch (mirrors fetchHoldings in institutionalHoldings.ts) ──────────
+
+export async function fetchFundamentals(ticker: string): Promise<FundamentalsRaw> {
+  const res = await fetch(
+    `/api/fundamentals?symbol=${encodeURIComponent(ticker)}&_t=${Date.now()}`,
+    { cache: "no-store" },
+  )
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: "unknown" }))
+    throw new Error(body.error || body.message || `HTTP ${res.status}`)
+  }
+  return await res.json() as FundamentalsRaw
+}
+
+// ─── Growth + discount helpers ─────────────────────────────────────────────────
+
+function pickGrowth(f: FundamentalsRaw): number {
+  // Prefer analyst long-term, then earnings, then revenue growth, else a modest default.
+  const g = f.longTermGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.05
+  return clamp(g, 0, 0.18)        // never project >18% for a decade
+}
+
+function discountRate(f: FundamentalsRaw): number {
+  const beta = f.beta ?? 1.1
+  return clamp(RISK_FREE + beta * EQUITY_RISK_PREMIUM, 0.075, 0.12)
+}
+
+// ─── DCF ────────────────────────────────────────────────────────────────────────
+
+function dcfValuePerShare(fcf: number, g: number, r: number, netDebt: number, shares: number): number {
+  let pvSum = 0
+  let projected = fcf
+  let lastProjected = fcf
+  for (let year = 1; year <= HIGH_GROWTH_YEARS + FADE_YEARS; year++) {
+    // years 1-5 grow at g; years 6-10 fade linearly toward terminal growth
+    let growth: number
+    if (year <= HIGH_GROWTH_YEARS) {
+      growth = g
+    } else {
+      const step = (g - TERMINAL_GROWTH) * (year - HIGH_GROWTH_YEARS) / FADE_YEARS
+      growth = g - step
+    }
+    projected = projected * (1 + growth)
+    pvSum += projected / Math.pow(1 + r, year)
+    lastProjected = projected
+  }
+  // Gordon terminal value on the last projected FCF, discounted back
+  const terminalValue = (lastProjected * (1 + TERMINAL_GROWTH)) / (r - TERMINAL_GROWTH)
+  pvSum += terminalValue / Math.pow(1 + r, HIGH_GROWTH_YEARS + FADE_YEARS)
+
+  const equityValue = pvSum - netDebt   // FCFF → subtract net debt for equity
+  return equityValue / shares
+}
+
+export function computeDCF(f: FundamentalsRaw): MethodValuation & { low?: number; high?: number } {
+  const fcf = f.freeCashflow
+  const shares = f.sharesOutstanding
+  const base: MethodValuation & { low?: number; high?: number } = {
+    method: "DCF", available: false, valuePerShare: null, weight: 0, assumptions: [],
+  }
+
+  if (fcf == null || shares == null || shares <= 0) {
+    base.caveat = "ไม่มีข้อมูล FCF หรือจำนวนหุ้น — ข้าม DCF"
+    return base
+  }
+  if (fcf <= 0) {
+    base.caveat = "FCF ติดลบ — DCF ไม่น่าเชื่อถือสำหรับบริษัทที่ยังไม่สร้างกระแสเงินสด"
+    return base
+  }
+
+  const g = pickGrowth(f)
+  const r = discountRate(f)
+  const netDebt = f.netDebt ?? 0
+
+  const value = dcfValuePerShare(fcf, g, r, netDebt, shares)
+  // Sensitivity band: bear = lower growth + higher discount; bull = the reverse
+  const low = dcfValuePerShare(fcf, clamp(g - 0.03, 0, 0.18), clamp(r + 0.01, 0.075, 0.13), netDebt, shares)
+  const high = dcfValuePerShare(fcf, clamp(g + 0.03, 0, 0.20), clamp(r - 0.01, 0.07, 0.12), netDebt, shares)
+
+  if (!Number.isFinite(value) || value <= 0) {
+    base.caveat = "ผล DCF ไม่สมเหตุผล (อาจเพราะ net debt สูงมาก) — ข้าม"
+    return base
+  }
+
+  return {
+    method: "DCF",
+    available: true,
+    valuePerShare: value,
+    weight: 0,
+    low: Math.min(low, high),
+    high: Math.max(low, high),
+    assumptions: [
+      `FCF ฐาน $${(fcf / 1e9).toFixed(2)}B`,
+      `Growth ${pct(g)}/ปี (5 ปีแรก) → fade เป็น ${pct(TERMINAL_GROWTH)}`,
+      `Discount ${pct(r)} (CAPM, β=${(f.beta ?? 1.1).toFixed(2)})`,
+      f.netDebt != null ? `Net debt $${(f.netDebt / 1e9).toFixed(2)}B` : "Net debt n/a (ใช้ 0)",
+    ],
+  }
+}
+
+// ─── Comparable (relative) ──────────────────────────────────────────────────────
+
+export function computeComparable(f: FundamentalsRaw): MethodValuation {
+  const eps = (f.forwardEps && f.forwardEps > 0) ? f.forwardEps : f.trailingEps
+  const base: MethodValuation = {
+    method: "Comparable", available: false, valuePerShare: null, weight: 0, assumptions: [],
+  }
+  if (eps == null || eps <= 0) {
+    base.caveat = "EPS ติดลบ/ไม่มี — เทียบ P/E ไม่ได้"
+    return base
+  }
+
+  const g = f.longTermGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.08
+  const growthPct = clamp(g * 100, 0, 30)
+  const fairPE = clamp(growthPct * 1.5, 8, 35)   // PEG ≈ 1.5
+  const value = eps * fairPE
+  const usedEps = (f.forwardEps && f.forwardEps > 0) ? "forward" : "trailing"
+
+  return {
+    method: "Comparable",
+    available: true,
+    valuePerShare: value,
+    weight: 0,
+    assumptions: [
+      `${usedEps} EPS $${eps.toFixed(2)}`,
+      `Fair P/E ${fairPE.toFixed(1)}× (PEG 1.5 บน growth ${growthPct.toFixed(1)}%)`,
+      f.forwardPE != null ? `เทียบ forward P/E ปัจจุบัน ${f.forwardPE.toFixed(1)}×` : "",
+    ].filter(Boolean),
+  }
+}
+
+// ─── Asset-based ─────────────────────────────────────────────────────────────────
+
+export function computeAsset(f: FundamentalsRaw): MethodValuation {
+  const bvps = f.bookValuePerShare
+  const eps = f.trailingEps
+  const base: MethodValuation = {
+    method: "Asset", available: false, valuePerShare: null, weight: 0, assumptions: [],
+  }
+  if (bvps == null || bvps <= 0) {
+    base.caveat = "Book value ติดลบ/ไม่มี — ตีมูลค่าจากสินทรัพย์ไม่ได้"
+    return base
+  }
+
+  // Graham Number when earnings are positive; otherwise fall back to plain book value.
+  let value: number
+  const assumptions: string[] = [`Book value/share $${bvps.toFixed(2)}`]
+  if (eps != null && eps > 0) {
+    value = Math.sqrt(22.5 * eps * bvps)
+    assumptions.push(`Graham Number √(22.5 × EPS $${eps.toFixed(2)} × BVPS) = $${value.toFixed(2)}`)
+  } else {
+    value = bvps
+    assumptions.push("EPS ติดลบ → ใช้ book value เป็นพื้น (ไม่มี Graham Number)")
+  }
+
+  return { method: "Asset", available: true, valuePerShare: value, weight: 0, assumptions }
+}
+
+// ─── Margin of safety label ──────────────────────────────────────────────────────
+
+function mosLabel(mos: number): { label: MoSLabel; color: string } {
+  if (mos >= 0.30)  return { label: "Deep Value",  color: "text-emerald-400" }
+  if (mos >= 0.10)  return { label: "Undervalued", color: "text-green-400" }
+  if (mos >= -0.10) return { label: "Fair Value",  color: "text-yellow-400" }
+  if (mos >= -0.25) return { label: "Overvalued",  color: "text-orange-400" }
+  return { label: "Expensive", color: "text-red-400" }
+}
+
+// ─── Blend + main entry ──────────────────────────────────────────────────────────
+
+const BASE_WEIGHTS: Record<ValuationMethod, number> = { DCF: 0.5, Comparable: 0.35, Asset: 0.15 }
+
+export function computeFairValue(f: FundamentalsRaw): FairValueResult {
+  const price = f.currentPrice
+  const result: FairValueResult = {
+    ticker: f.ticker,
+    longName: f.longName,
+    currentPrice: price,
+    available: false,
+    methods: [],
+    fairValueBase: null,
+    fairValueLow: null,
+    fairValueHigh: null,
+    marginOfSafety: null,
+    mosLabel: null,
+    mosColor: "text-gray-400",
+    analystTarget: f.targetMeanPrice,
+    notes: [],
+  }
+
+  // ETFs / funds have no per-share intrinsic value in this framework.
+  if (f.quoteType && f.quoteType !== "EQUITY") {
+    result.unavailableReason = `${f.quoteType} — โมเดลนี้ใช้กับหุ้นรายตัวเท่านั้น`
+    return result
+  }
+
+  const dcf = computeDCF(f)
+  const comp = computeComparable(f)
+  const asset = computeAsset(f)
+  const methods: MethodValuation[] = [
+    { method: dcf.method, available: dcf.available, valuePerShare: dcf.valuePerShare, weight: 0, assumptions: dcf.assumptions, caveat: dcf.caveat },
+    comp,
+    asset,
+  ]
+
+  const avail = methods.filter(m => m.available && m.valuePerShare != null)
+  if (avail.length === 0) {
+    result.methods = methods
+    result.unavailableReason = "ข้อมูลพื้นฐานไม่พอสำหรับทุกวิธี (อาจเป็นหุ้นใหม่/ขาดงบ)"
+    return result
+  }
+
+  // Renormalize weights over the methods that are actually available.
+  const totalW = avail.reduce((s, m) => s + BASE_WEIGHTS[m.method], 0)
+  for (const m of methods) {
+    m.weight = m.available && m.valuePerShare != null ? BASE_WEIGHTS[m.method] / totalW : 0
+  }
+
+  const base = avail.reduce((s, m) => s + (m.valuePerShare as number) * (BASE_WEIGHTS[m.method] / totalW), 0)
+
+  // Range: scale the blend by the DCF sensitivity band if present, else ±15%.
+  let lowRatio = 0.85, highRatio = 1.15
+  if (dcf.available && dcf.valuePerShare && dcf.low && dcf.high) {
+    lowRatio = dcf.low / dcf.valuePerShare
+    highRatio = dcf.high / dcf.valuePerShare
+  }
+
+  result.available = true
+  result.methods = methods
+  result.fairValueBase = base
+  result.fairValueLow = base * lowRatio
+  result.fairValueHigh = base * highRatio
+
+  if (price != null && price > 0 && base > 0) {
+    const mos = (base - price) / base
+    const { label, color } = mosLabel(mos)
+    result.marginOfSafety = mos
+    result.mosLabel = label
+    result.mosColor = color
+  }
+
+  if (avail.length < 3) {
+    result.notes.push(`ใช้ ${avail.length}/3 วิธี (บางวิธีข้อมูลไม่พอ) — ความเชื่อมั่นลดลง`)
+  }
+  if (f.targetMeanPrice != null && price != null) {
+    result.notes.push(`เป้านักวิเคราะห์เฉลี่ย $${f.targetMeanPrice.toFixed(2)}`)
+  }
+
+  return result
+}

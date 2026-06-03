@@ -19,6 +19,11 @@ import {
 } from "@/lib/cftcCot"
 import { fetchGex, type GexSnapshot } from "@/lib/dealerGamma"
 import { fetchHoldings, computeSmartMoneyScore, type HoldingsSnapshot } from "@/lib/institutionalHoldings"
+import {
+  CONVICTION_FUNDS, fetchFundHoldings, computeOverlap, CHANGE_META, fmtUsd,
+  type FundHoldingsSnapshot, type ConvictionFund,
+} from "@/lib/convictionFunds"
+import { usePortfolioStore } from "@/store/portfolioStore"
 
 export default function SmartMoneyPage() {
   const character = PAGE_CHARACTERS.smartmoney
@@ -31,7 +36,7 @@ export default function SmartMoneyPage() {
         </div>
         <h1 className="text-2xl font-bold text-white mb-1">Smart Money Dashboard</h1>
         <div className="text-xs text-gray-400 mb-3">
-          Hedge fund positioning (CFTC COT) · Dealer gamma (options) · 13F institutional holdings
+          Hedge fund positioning (CFTC COT) · Dealer gamma (options) · Conviction fund 13F
         </div>
         <div className="text-[11px] text-cyan-300/80 max-w-2xl">
           💡 Three data sources hedge funds use to position trades. Watch for extremes (z-score &gt;2 or &lt;-2)
@@ -42,6 +47,7 @@ export default function SmartMoneyPage() {
       <div className="space-y-4">
         <CotPanel />
         <GexPanel />
+        <ConvictionPanel />
         <HoldingsPanel />
       </div>
     </div>
@@ -469,7 +475,201 @@ function GexChart({ snap }: { snap: GexSnapshot }) {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-//  3. Institutional Holdings (13F proxy)
+//  3. Conviction Fund Tracker — what smart money is buying/cutting (13F)
+// ════════════════════════════════════════════════════════════════════════════
+
+function ConvictionPanel() {
+  const [fund, setFund] = useState<ConvictionFund>(CONVICTION_FUNDS[0])
+  const [snap, setSnap] = useState<FundHoldingsSnapshot | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())  // funds with no 13F → auto-hide chip
+
+  const { positions } = usePortfolioStore()
+  const portfolioTickers = Array.from(new Set(
+    positions.filter(p => p.isActive).map(p => p.ticker.toUpperCase())
+  ))
+
+  const load = useCallback(async (f: ConvictionFund) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const s = await fetchFundHoldings(f.cik)
+      setSnap(s)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      // A fund with no 13F yet → drop its chip silently and don't show a scary error
+      if (/no_13f|404/.test(msg)) {
+        setHidden(prev => new Set(prev).add(f.key))
+        setSnap(null)
+        setError(null)
+      } else {
+        setError(`SEC EDGAR: ${msg}`)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load(fund) }, [fund, load])
+
+  const overlap = snap ? computeOverlap(snap.holdings, portfolioTickers) : new Set<string>()
+  const visibleFunds = CONVICTION_FUNDS.filter(f => !hidden.has(f.key))
+
+  return (
+    <div className="bg-[#0C1628] border border-[#1A2E52] rounded-2xl overflow-hidden hsr-card">
+      {/* Header */}
+      <div className="bg-[#0A1424] border-b border-[#1A2E52] px-4 py-3 flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-amber-400" />
+          <div>
+            <div className="text-sm font-bold text-white">3. Conviction Fund Tracker</div>
+            <div className="text-[10px] text-gray-500">
+              กองเก่งซื้อ/ตัดอะไร · NEW / ADD / TRIM / EXIT + overlap กับพอร์ต · long equity เท่านั้น (ตัด options)
+            </div>
+          </div>
+        </div>
+        <Button
+          size="sm" variant="outline" onClick={() => load(fund)} disabled={loading}
+          className="border-[#1F3566] text-gray-300 gap-1 h-7 text-xs"
+        >
+          <RefreshCw className={cn("w-3 h-3", loading && "animate-spin")} /> Refresh
+        </Button>
+      </div>
+
+      {/* Fund chips */}
+      <div className="px-4 py-2 border-b border-[#1A2E52]/60 flex flex-wrap gap-1.5">
+        {visibleFunds.map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFund(f)}
+            title={`${f.manager} · ${f.blurb}`}
+            className={cn(
+              "px-2.5 py-1 rounded-lg text-xs font-medium transition-colors",
+              fund.key === f.key
+                ? "bg-amber-500/15 text-amber-300 border border-amber-500/40"
+                : "text-gray-400 hover:bg-[#1A2E52]/40 border border-transparent",
+            )}
+          >
+            {f.emoji} {f.manager.split(" ").slice(-1)[0]}
+          </button>
+        ))}
+      </div>
+
+      {loading && !snap ? (
+        <div className="flex items-center justify-center py-10">
+          <InlineSpinner className="text-amber-400 w-5 h-5" />
+          <span className="ml-2 text-gray-500 text-sm">ดึง 13F จาก SEC EDGAR…</span>
+        </div>
+      ) : error ? (
+        <div className="px-4 py-6 text-center">
+          <div className="text-red-400 text-sm mb-1">⚠️ {error}</div>
+          <div className="text-[10px] text-gray-600">SEC อาจ rate-limit ชั่วคราว — ลอง Refresh อีกครั้ง</div>
+        </div>
+      ) : !snap ? (
+        <div className="py-10 text-center text-gray-500 text-sm">ไม่มีข้อมูล</div>
+      ) : (
+        <div className="p-4 space-y-3">
+          {/* Fund summary */}
+          <div className="rounded-xl border border-[#1A2E52] bg-[#070B18] p-3 flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div className="text-sm font-bold text-white">{fund.emoji} {fund.fund}</div>
+              <div className="text-[10px] text-gray-500">
+                {fund.manager} · {snap.holdingsCount} holdings · {fmtUsd(snap.totalValue)} AUM (13F)
+                {snap.optionsExcluded > 0 && ` · ตัด ${snap.optionsExcluded} option rows`}
+              </div>
+              <div className="text-[10px] text-gray-600 mt-0.5">
+                {snap.priorQuarter ? `เทียบ ${snap.priorQuarter} → ${snap.latestQuarter}` : `ไตรมาส ${snap.latestQuarter} (ไม่มีไตรมาสก่อนเทียบ)`}
+              </div>
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
+              <ChangePill label="NEW"  n={snap.newCount}  meta={CHANGE_META.NEW} />
+              <ChangePill label="ADD"  n={snap.addCount}  meta={CHANGE_META.ADD} />
+              <ChangePill label="TRIM" n={snap.trimCount} meta={CHANGE_META.TRIM} />
+              <ChangePill label="EXIT" n={snap.exitCount} meta={CHANGE_META.EXIT} />
+            </div>
+          </div>
+
+          {/* Holdings table */}
+          <div className="bg-[#070B18] border border-[#1A2E52]/60 rounded-xl overflow-hidden overflow-x-auto">
+            <table className="w-full text-xs min-w-[560px]">
+              <thead className="bg-[#0A1424]">
+                <tr className="text-[10px] text-gray-500 uppercase">
+                  <th className="text-left px-3 py-1.5">Change</th>
+                  <th className="text-left px-3 py-1.5">Stock</th>
+                  <th className="text-right px-3 py-1.5">Value</th>
+                  <th className="text-right px-3 py-1.5">% Port</th>
+                  <th className="text-right px-3 py-1.5">Δ Value</th>
+                  <th className="text-right px-3 py-1.5">Δ Shares</th>
+                </tr>
+              </thead>
+              <tbody>
+                {snap.holdings.map((h, i) => {
+                  const meta = CHANGE_META[h.changeType]
+                  const inPort = h.ticker && overlap.has(h.ticker.toUpperCase())
+                  return (
+                    <tr key={h.cusip + i} className={cn(
+                      "border-t border-[#1A2E52]/40 hover:bg-amber-500/[0.04]",
+                      inPort && "bg-cyan-500/[0.06]",
+                    )}>
+                      <td className="px-3 py-1.5">
+                        <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded border", meta.bg, meta.color)}>
+                          {meta.label}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-white font-mono font-medium">{h.ticker || "—"}</span>
+                          {inPort && (
+                            <span className="text-[8px] bg-cyan-500/20 text-cyan-300 px-1 py-0.5 rounded-full border border-cyan-500/40 font-bold">
+                              ในพอร์ต
+                            </span>
+                          )}
+                          <span className="text-[9px] text-gray-600 truncate max-w-[140px]">{h.issuer}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-cyan-300 font-mono">
+                        {h.changeType === "EXIT" ? "—" : fmtUsd(h.value)}
+                      </td>
+                      <td className="px-3 py-1.5 text-right text-gray-400 font-mono">
+                        {h.changeType === "EXIT" ? "—" : `${(h.pctOfPortfolio * 100).toFixed(1)}%`}
+                      </td>
+                      <td className={cn("px-3 py-1.5 text-right font-mono",
+                        h.deltaValue > 0 ? "text-emerald-400" : h.deltaValue < 0 ? "text-red-400" : "text-gray-600")}>
+                        {h.deltaValue === 0 ? "—" : fmtUsd(h.deltaValue)}
+                      </td>
+                      <td className={cn("px-3 py-1.5 text-right font-mono text-[11px]",
+                        h.deltaPct == null ? "text-gray-600" : h.deltaPct > 0 ? "text-emerald-400" : "text-red-400")}>
+                        {h.changeType === "NEW" ? "new" : h.deltaPct == null ? "—" : `${h.deltaPct >= 0 ? "+" : ""}${(h.deltaPct * 100).toFixed(0)}%`}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="text-[10px] text-gray-600 leading-relaxed">
+            ⚠️ 13F ล่าช้า 45 วัน · แสดงเฉพาะ long US equity (ไม่รวม short/options/ต่างประเทศ) ·
+            แถวไฮไลต์ฟ้า = ทับกับพอร์ตคุณ · ไม่ใช่คำแนะนำลงทุน
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ChangePill({ label, n, meta }: { label: string; n: number; meta: { color: string; bg: string } }) {
+  return (
+    <div className={cn("text-center rounded-lg border px-2 py-1", meta.bg)}>
+      <div className={cn("text-sm font-bold font-mono", meta.color)}>{n}</div>
+      <div className="text-[8px] text-gray-500 uppercase tracking-wider">{label}</div>
+    </div>
+  )
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+//  4. Per-Stock 13F Holders (lookup) — who owns ticker X
 // ════════════════════════════════════════════════════════════════════════════
 
 function HoldingsPanel() {
@@ -503,9 +703,9 @@ function HoldingsPanel() {
         <div className="flex items-center gap-2">
           <Building2 className="w-4 h-4 text-amber-400" />
           <div>
-            <div className="text-sm font-bold text-white">3. Institutional Holdings (13F proxy)</div>
+            <div className="text-sm font-bold text-white">4. Per-Stock 13F Holders (lookup)</div>
             <div className="text-[10px] text-gray-500">
-              Top fund holders + smart money score · 45-day filing delay · quarterly
+              ใครถือหุ้นตัวนี้ + smart money score · 45-day filing delay · quarterly
             </div>
           </div>
         </div>

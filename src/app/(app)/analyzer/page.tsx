@@ -6,8 +6,10 @@ import { Search, ScanLine, Sparkles, AlertCircle, RefreshCw } from "lucide-react
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { analyzeStock, type AnalyzerResult } from "@/lib/stockAnalyzer"
+import { fetchFundamentals, computeFairValue, type FairValueResult } from "@/lib/fairValue"
 import { AnalyzerHeader } from "@/components/analyzer/AnalyzerHeader"
 import { EntryStrategyCard } from "@/components/analyzer/EntryStrategyCard"
+import { FairValueCard } from "@/components/analyzer/FairValueCard"
 import { AnalyzerChart } from "@/components/analyzer/AnalyzerChart"
 import { TrendGaugeGrid } from "@/components/analyzer/TrendGauge"
 import { TechnicalThesis } from "@/components/analyzer/TechnicalThesis"
@@ -36,6 +38,9 @@ function AnalyzerPageInner() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<AnalyzerResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [fairValue, setFairValue] = useState<FairValueResult | null>(null)
+  const [fvLoading, setFvLoading] = useState(false)
+  const [fvError, setFvError] = useState<string | null>(null)
   const { positions } = usePortfolioStore()
   const searchParams = useSearchParams()
 
@@ -48,6 +53,17 @@ function AnalyzerPageInner() {
     setLoading(true)
     setError(null)
     setResult(null)
+    setFairValue(null)
+    setFvError(null)
+    setFvLoading(true)
+
+    // Fair value runs independently of the technical pipeline — fundamentals may
+    // be missing (ETF/ADR) without that being a reason to fail the whole analysis.
+    fetchFundamentals(tkr)
+      .then(f => setFairValue(computeFairValue(f)))
+      .catch(e => setFvError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setFvLoading(false))
+
     try {
       const r = await analyzeStock(tkr)
       if (!r) {
@@ -190,6 +206,9 @@ function AnalyzerPageInner() {
             })()}
           />
 
+          {/* ── Fair Value / Margin of Safety (fundamentals, independent fetch) ── */}
+          <FairValueCard result={fairValue} loading={fvLoading} error={fvError} />
+
           {/* Two-column: Chart + Trend Gauges */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
             <AnalyzerChart result={result} />
@@ -235,7 +254,7 @@ function AnalyzerPageInner() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setResult(null); setTicker("") }}
+                onClick={() => { setResult(null); setTicker(""); setFairValue(null); setFvError(null) }}
                 className="border-[#1F3566] text-gray-300"
               >
                 Search Another
