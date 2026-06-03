@@ -31,6 +31,11 @@ export const CONVICTION_FUNDS: ConvictionFund[] = [
   { key: "tiger",       manager: "Chase Coleman",         fund: "Tiger Global Management",  cik: "0001167483", emoji: "🐯", blurb: "Growth/tech · ถือยาว" },
   { key: "coatue",      manager: "Philippe Laffont",      fund: "Coatue Management",        cik: "0001135730", emoji: "🌊", blurb: "TMT/tech growth" },
   { key: "situational", manager: "Leopold Aschenbrenner", fund: "Situational Awareness LP", cik: "0002045724", emoji: "🤖", blurb: "AI-thesis fund · ใช้ options เยอะ" },
+  { key: "appaloosa",   manager: "David Tepper",          fund: "Appaloosa LP",             cik: "0001656456", emoji: "🐎", blurb: "Opportunistic macro/value · tech-heavy · กระจุกไม้ใหญ่" },
+  { key: "berkshire",   manager: "Warren Buffett",        fund: "Berkshire Hathaway",       cik: "0001067983", emoji: "🧙", blurb: "Value icon · ถือยาวมาก · มูลค่า+คุณภาพ" },
+  { key: "altimeter",   manager: "Brad Gerstner",         fund: "Altimeter Capital",        cik: "0001541617", emoji: "🚀", blurb: "AI/tech กระจุก · AI supercycle thesis (growth/momentum)" },
+  { key: "whalerock",   manager: "Alex Sacerdote",        fund: "Whale Rock Capital",       cik: "0001387322", emoji: "🐋", blurb: "Tech growth/momentum เฉพาะทาง" },
+  { key: "lonepine",    manager: "Stephen Mandel",        fund: "Lone Pine Capital",        cik: "0001061165", emoji: "🌲", blurb: "Tiger cub · GARP/growth" },
 ]
 
 export type FundKey = (typeof CONVICTION_FUNDS)[number]["key"]
