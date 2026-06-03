@@ -124,8 +124,10 @@ export async function fetchFundamentals(ticker: string): Promise<FundamentalsRaw
 // ─── Growth + discount helpers ─────────────────────────────────────────────────
 
 function pickGrowth(f: FundamentalsRaw): number {
-  // Prefer analyst long-term, then earnings, then revenue growth, else a modest default.
-  const g = f.longTermGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.05
+  // Prefer forward-looking estimates (analyst long-term, then next-year) before
+  // trailing earnings/revenue growth — a backlog/turnaround stock can have
+  // negative trailing growth but large forward growth. Falls back to a default.
+  const g = f.longTermGrowth ?? f.nextYearGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.05
   return clamp(g, 0, 0.18)        // never project >18% for a decade
 }
 
@@ -219,11 +221,15 @@ export function computeComparable(f: FundamentalsRaw): MethodValuation {
     return base
   }
 
-  const g = f.longTermGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.08
-  const growthPct = clamp(g * 100, 0, 30)
+  // Prefer forward growth so backlog/turnaround names aren't penalized by a
+  // negative trailing number (e.g. CIFR: trailing −29% but next-year +311%).
+  const g = f.longTermGrowth ?? f.nextYearGrowth ?? f.earningsGrowth ?? f.revenueGrowth ?? 0.08
+  const rawGrowthPct = g * 100
+  const growthPct = clamp(rawGrowthPct, 0, 30)
   const fairPE = clamp(growthPct * 1.5, 8, 35)   // PEG ≈ 1.5
   const value = eps * fairPE
   const usedEps = (f.forwardEps && f.forwardEps > 0) ? "forward" : "trailing"
+  const capped = rawGrowthPct > 30
 
   return {
     method: "Comparable",
@@ -232,7 +238,7 @@ export function computeComparable(f: FundamentalsRaw): MethodValuation {
     weight: 0,
     assumptions: [
       `${usedEps} EPS $${eps.toFixed(2)}`,
-      `Fair P/E ${fairPE.toFixed(1)}× (PEG 1.5 บน growth ${growthPct.toFixed(1)}%)`,
+      `Fair P/E ${fairPE.toFixed(1)}× (PEG 1.5 บน growth ${growthPct.toFixed(0)}%${capped ? ` · cap จาก ${rawGrowthPct.toFixed(0)}%` : ""})`,
       f.forwardPE != null ? `เทียบ forward P/E ปัจจุบัน ${f.forwardPE.toFixed(1)}×` : "",
     ].filter(Boolean),
   }
@@ -319,13 +325,22 @@ export function computeFairValue(f: FundamentalsRaw): FairValueResult {
     return result
   }
 
-  // Renormalize weights over the methods that are actually available.
-  const totalW = avail.reduce((s, m) => s + BASE_WEIGHTS[m.method], 0)
-  for (const m of methods) {
-    m.weight = m.available && m.valuePerShare != null ? BASE_WEIGHTS[m.method] / totalW : 0
+  // Per-stock weights. For loss-making companies the Asset method is just plain
+  // book value (no Graham Number) — a weak signal for a growth/backlog story —
+  // so halve its weight instead of letting it dominate after DCF drops out.
+  const weights: Record<ValuationMethod, number> = {
+    DCF: BASE_WEIGHTS.DCF,
+    Comparable: BASE_WEIGHTS.Comparable,
+    Asset: (f.trailingEps != null && f.trailingEps <= 0) ? BASE_WEIGHTS.Asset / 2 : BASE_WEIGHTS.Asset,
   }
 
-  const base = avail.reduce((s, m) => s + (m.valuePerShare as number) * (BASE_WEIGHTS[m.method] / totalW), 0)
+  // Renormalize weights over the methods that are actually available.
+  const totalW = avail.reduce((s, m) => s + weights[m.method], 0)
+  for (const m of methods) {
+    m.weight = m.available && m.valuePerShare != null ? weights[m.method] / totalW : 0
+  }
+
+  const base = avail.reduce((s, m) => s + (m.valuePerShare as number) * (weights[m.method] / totalW), 0)
 
   // Range: scale the blend by the DCF sensitivity band if present, else ±15%.
   let lowRatio = 0.85, highRatio = 1.15
