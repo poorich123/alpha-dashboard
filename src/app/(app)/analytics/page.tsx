@@ -5,6 +5,7 @@ import { getTrades, getSnapshots } from "@/lib/portfolio"
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts"
 import { TrendingUp, TrendingDown, Target, DollarSign } from "lucide-react"
 import { differenceInDays, parseISO, format } from "date-fns"
+import { CorrelationMatrix } from "@/components/analytics/CorrelationMatrix"
 
 function formatCurrency(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(n)
@@ -271,6 +272,11 @@ export default function AnalyticsPage() {
             </div>
           )}
         </div>
+      </div>
+
+      {/* Correlation Matrix — per-bucket diversification check */}
+      <div className="mt-6">
+        <CorrelationMatrix positions={activePositions} />
       </div>
     </div>
   )

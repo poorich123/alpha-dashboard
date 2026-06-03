@@ -1,15 +1,17 @@
 "use client"
 
-import { useState, useEffect, useCallback, Suspense } from "react"
+import { useState, useEffect, useCallback, useMemo, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { Search, ScanLine, Sparkles, AlertCircle, RefreshCw } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { analyzeStock, type AnalyzerResult } from "@/lib/stockAnalyzer"
-import { fetchFundamentals, computeFairValue, type FairValueResult } from "@/lib/fairValue"
+import { fetchFundamentals, computeFairValue, type FairValueResult, type FundamentalsRaw } from "@/lib/fairValue"
+import { computeBubbleScore } from "@/lib/bubbleScore"
 import { AnalyzerHeader } from "@/components/analyzer/AnalyzerHeader"
 import { EntryStrategyCard } from "@/components/analyzer/EntryStrategyCard"
 import { FairValueCard } from "@/components/analyzer/FairValueCard"
+import { BubbleScoreCard } from "@/components/analyzer/BubbleScoreCard"
 import { AnalyzerChart } from "@/components/analyzer/AnalyzerChart"
 import { TrendGaugeGrid } from "@/components/analyzer/TrendGauge"
 import { TechnicalThesis } from "@/components/analyzer/TechnicalThesis"
@@ -39,9 +41,16 @@ function AnalyzerPageInner() {
   const [result, setResult] = useState<AnalyzerResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [fairValue, setFairValue] = useState<FairValueResult | null>(null)
+  const [fundamentals, setFundamentals] = useState<FundamentalsRaw | null>(null)
   const [fvLoading, setFvLoading] = useState(false)
   const [fvError, setFvError] = useState<string | null>(null)
   const { positions } = usePortfolioStore()
+
+  // Bubble score derives from technical result + (optional) valuation/fundamentals
+  const bubbleScore = useMemo(
+    () => (result ? computeBubbleScore(result, fairValue, fundamentals) : null),
+    [result, fairValue, fundamentals],
+  )
   const searchParams = useSearchParams()
 
   const myTickers = Array.from(new Set(
@@ -54,13 +63,14 @@ function AnalyzerPageInner() {
     setError(null)
     setResult(null)
     setFairValue(null)
+    setFundamentals(null)
     setFvError(null)
     setFvLoading(true)
 
     // Fair value runs independently of the technical pipeline — fundamentals may
     // be missing (ETF/ADR) without that being a reason to fail the whole analysis.
     fetchFundamentals(tkr)
-      .then(f => setFairValue(computeFairValue(f)))
+      .then(f => { setFundamentals(f); setFairValue(computeFairValue(f)) })
       .catch(e => setFvError(e instanceof Error ? e.message : String(e)))
       .finally(() => setFvLoading(false))
 
@@ -209,6 +219,9 @@ function AnalyzerPageInner() {
           {/* ── Fair Value / Margin of Safety (fundamentals, independent fetch) ── */}
           <FairValueCard result={fairValue} loading={fvLoading} error={fvError} />
 
+          {/* ── Bubble Score (Dalio 6-point, derived from technical + valuation) ── */}
+          <BubbleScoreCard result={bubbleScore} />
+
           {/* Two-column: Chart + Trend Gauges */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-4">
             <AnalyzerChart result={result} />
@@ -254,7 +267,7 @@ function AnalyzerPageInner() {
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => { setResult(null); setTicker(""); setFairValue(null); setFvError(null) }}
+                onClick={() => { setResult(null); setTicker(""); setFairValue(null); setFundamentals(null); setFvError(null) }}
                 className="border-[#1F3566] text-gray-300"
               >
                 Search Another
