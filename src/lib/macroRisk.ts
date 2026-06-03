@@ -444,3 +444,183 @@ export async function detectMacroRisks(): Promise<MacroSnapshot> {
     scannedAt: Date.now(),
   }
 }
+
+// ════════════════════════════════════════════════════════════════════════════
+//  Dalio Regime Detector — Growth × Inflation 4-quadrant (market-implied)
+// ════════════════════════════════════════════════════════════════════════════
+//
+// Ray Dalio's "economic machine" frames asset returns by two axes: whether
+// GROWTH and INFLATION are rising or falling. That gives 4 regimes, each with
+// different asset winners. We infer the two axes from market-implied proxies
+// (no economic-data feed needed):
+//
+//   Growth ↑    : copper/gold ratio rising, SPY uptrend, high-yield credit firm,
+//                 yield curve steepening
+//   Inflation ↑ : oil & copper rising, 10Y yield rising, gold rising
+//
+// NOT investment advice — these are fast market proxies, not official GDP/CPI.
+
+export type RegimeAxisDir = "Rising" | "Falling"
+export type RegimeKey = "goldilocks" | "reflation" | "stagflation" | "deflation"
+
+export interface RegimeIndicator {
+  label: string
+  value: string
+  vote: "up" | "down"     // contribution to its axis
+}
+
+export interface DalioRegime {
+  available: boolean
+  growthDir: RegimeAxisDir
+  growthScore: number       // -100..100 (sign = direction, magnitude = conviction)
+  inflationDir: RegimeAxisDir
+  inflationScore: number
+  regimeKey: RegimeKey
+  regimeLabel: string
+  emoji: string
+  description: string
+  favored: string[]
+  avoid: string[]
+  color: string             // tailwind text color
+  growthIndicators: RegimeIndicator[]
+  inflationIndicators: RegimeIndicator[]
+  scannedAt: number
+}
+
+const REGIME_META: Record<RegimeKey, Omit<DalioRegime, "available" | "growthDir" | "growthScore" | "inflationDir" | "inflationScore" | "regimeKey" | "growthIndicators" | "inflationIndicators" | "scannedAt">> = {
+  goldilocks: {
+    regimeLabel: "Goldilocks · Growth↑ Inflation↓",
+    emoji: "🌤️",
+    description: "เศรษฐกิจโตโดยเงินเฟ้อลด — สภาพแวดล้อมดีที่สุดสำหรับสินทรัพย์เสี่ยง",
+    favored: ["หุ้นเติบโต/เทค", "US equities", "Credit/High-yield", "Long-duration growth"],
+    avoid: ["เงินสดเยอะ", "สินค้าโภคภัณฑ์", "ทองคำสัดส่วนสูง"],
+    color: "text-emerald-400",
+  },
+  reflation: {
+    regimeLabel: "Reflation / Overheating · Growth↑ Inflation↑",
+    emoji: "🔥",
+    description: "โตพร้อมเงินเฟ้อเร่ง — ของจริง/วัฏจักรนำ พันธบัตรยาวเสียเปรียบ",
+    favored: ["Value/Cyclicals", "Energy & Materials", "Commodities", "TIPS", "EM"],
+    avoid: ["พันธบัตรระยะยาว", "หุ้น P/E สูงมาก", "Duration"],
+    color: "text-orange-400",
+  },
+  stagflation: {
+    regimeLabel: "Stagflation · Growth↓ Inflation↑",
+    emoji: "🥵",
+    description: "โตช้าแต่เงินเฟ้อยังสูง — สภาพแวดล้อมยากสุด เน้นป้องกัน + ของจริง",
+    favored: ["ทองคำ/เงิน", "Commodities & Energy", "Defensives", "เงินสด", "TIPS"],
+    avoid: ["หุ้นเติบโต", "Cyclicals", "พันธบัตรยาว", "High-beta"],
+    color: "text-red-400",
+  },
+  deflation: {
+    regimeLabel: "Deflation / Recession · Growth↓ Inflation↓",
+    emoji: "❄️",
+    description: "ชะลอตัวพร้อมเงินเฟ้อลด — พันธบัตรคุณภาพและของป้องกันชนะ",
+    favored: ["พันธบัตรรัฐระยะยาว (TLT)", "Quality/Defensives", "เงินสด", "Staples/Utilities"],
+    avoid: ["Cyclicals", "Commodities", "High-beta", "Credit เสี่ยง"],
+    color: "text-sky-400",
+  },
+}
+
+function regimeKeyFor(growthUp: boolean, inflUp: boolean): RegimeKey {
+  if (growthUp && !inflUp) return "goldilocks"
+  if (growthUp && inflUp)  return "reflation"
+  if (!growthUp && inflUp) return "stagflation"
+  return "deflation"
+}
+
+export async function detectDalioRegime(): Promise<DalioRegime> {
+  const [spy, hyg, copper, gold, oil, tnx, irx] = await Promise.all([
+    getYahooCandles("SPY",  "6mo", "1d").catch(() => null),
+    getYahooCandles("HYG",  "6mo", "1d").catch(() => null),
+    getYahooCandles("HG=F", "6mo", "1d").catch(() => null),
+    getYahooCandles("GC=F", "6mo", "1d").catch(() => null),
+    getYahooCandles("CL=F", "6mo", "1d").catch(() => null),
+    getYahooCandles("^TNX", "6mo", "1d").catch(() => null),
+    getYahooCandles("^IRX", "6mo", "1d").catch(() => null),
+  ])
+
+  const cu20 = copper ? pctChange(copper.c, 20) : null
+  const au20 = gold   ? pctChange(gold.c, 20)   : null
+  const spy60 = spy   ? pctChange(spy.c, 60)    : null
+  const hyg20 = hyg   ? pctChange(hyg.c, 20)    : null
+  const oil20 = oil   ? pctChange(oil.c, 20)    : null
+  const tnx20 = tnx   ? pctChange(tnx.c, 20)    : null
+
+  // Yield-curve steepening: (10Y−3M) now vs 20 sessions ago
+  let curveSteepening: number | null = null
+  if (tnx && irx && tnx.c.length > 21 && irx.c.length > 21) {
+    const spreadNow = lastVal(tnx.c) - lastVal(irx.c)
+    const spreadPrior = tnx.c[tnx.c.length - 21] - irx.c[irx.c.length - 21]
+    curveSteepening = spreadNow - spreadPrior
+  }
+
+  // ── Growth axis ──
+  const growthIndicators: RegimeIndicator[] = []
+  const gVotes: number[] = []
+  if (cu20 != null && au20 != null) {
+    const rel = cu20 - au20
+    growthIndicators.push({ label: "Copper/Gold ratio (20d)", value: `${rel >= 0 ? "+" : ""}${rel.toFixed(1)}%`, vote: rel >= 0 ? "up" : "down" })
+    gVotes.push(rel >= 0 ? 1 : -1)
+  }
+  if (spy60 != null) {
+    growthIndicators.push({ label: "SPY trend (60d)", value: fmtPct(spy60), vote: spy60 >= 0 ? "up" : "down" })
+    gVotes.push(spy60 >= 0 ? 1 : -1)
+  }
+  if (hyg20 != null) {
+    growthIndicators.push({ label: "High-yield credit HYG (20d)", value: fmtPct(hyg20), vote: hyg20 >= 0 ? "up" : "down" })
+    gVotes.push(hyg20 >= 0 ? 1 : -1)
+  }
+  if (curveSteepening != null) {
+    growthIndicators.push({ label: "Yield curve steepening (10Y−3M, 20d)", value: `${curveSteepening >= 0 ? "+" : ""}${curveSteepening.toFixed(2)}pp`, vote: curveSteepening >= 0 ? "up" : "down" })
+    gVotes.push(curveSteepening >= 0 ? 1 : -1)
+  }
+
+  // ── Inflation axis ──
+  const inflationIndicators: RegimeIndicator[] = []
+  const iVotes: number[] = []
+  if (oil20 != null) {
+    inflationIndicators.push({ label: "Oil WTI (20d)", value: fmtPct(oil20), vote: oil20 >= 0 ? "up" : "down" })
+    iVotes.push(oil20 >= 0 ? 1 : -1)
+  }
+  if (cu20 != null) {
+    inflationIndicators.push({ label: "Copper (20d)", value: fmtPct(cu20), vote: cu20 >= 0 ? "up" : "down" })
+    iVotes.push(cu20 >= 0 ? 1 : -1)
+  }
+  if (tnx20 != null) {
+    inflationIndicators.push({ label: "10Y yield momentum (20d)", value: fmtPct(tnx20), vote: tnx20 >= 0 ? "up" : "down" })
+    iVotes.push(tnx20 >= 0 ? 1 : -1)
+  }
+  if (au20 != null) {
+    inflationIndicators.push({ label: "Gold (20d)", value: fmtPct(au20), vote: au20 >= 0 ? "up" : "down" })
+    iVotes.push(au20 >= 0 ? 1 : -1)
+  }
+
+  if (gVotes.length < 2 || iVotes.length < 2) {
+    return {
+      available: false,
+      growthDir: "Rising", growthScore: 0, inflationDir: "Rising", inflationScore: 0,
+      regimeKey: "goldilocks", ...REGIME_META.goldilocks,
+      growthIndicators, inflationIndicators, scannedAt: Date.now(),
+    }
+  }
+
+  const growthScore = Math.round((gVotes.reduce((a, b) => a + b, 0) / gVotes.length) * 100)
+  const inflationScore = Math.round((iVotes.reduce((a, b) => a + b, 0) / iVotes.length) * 100)
+  const growthUp = growthScore >= 0
+  const inflUp = inflationScore >= 0
+  const key = regimeKeyFor(growthUp, inflUp)
+
+  return {
+    available: true,
+    growthDir: growthUp ? "Rising" : "Falling",
+    growthScore,
+    inflationDir: inflUp ? "Rising" : "Falling",
+    inflationScore,
+    regimeKey: key,
+    ...REGIME_META[key],
+    growthIndicators,
+    inflationIndicators,
+    scannedAt: Date.now(),
+  }
+}

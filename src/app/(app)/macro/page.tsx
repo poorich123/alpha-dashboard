@@ -1,9 +1,8 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { RefreshCw, AlertTriangle, Zap, ShieldAlert } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { detectMacroRisks, type MacroSnapshot, type RiskFactor } from "@/lib/macroRisk"
+import { RefreshCw, AlertTriangle, Zap, ShieldAlert, Compass, TrendingUp, TrendingDown } from "lucide-react"
+import { detectMacroRisks, detectDalioRegime, type MacroSnapshot, type RiskFactor, type DalioRegime } from "@/lib/macroRisk"
 import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
@@ -75,16 +74,144 @@ function FactorCard({ factor }: { factor: RiskFactor }) {
   )
 }
 
+function RegimeCard({ regime }: { regime: DalioRegime }) {
+  if (!regime.available) {
+    return (
+      <div className="rounded-2xl border border-[#1A2E52] bg-[#0C1628] p-4 mb-4 text-sm text-gray-500">
+        Dalio Regime: ข้อมูลตลาดไม่พอประเมิน (ลอง Refresh)
+      </div>
+    )
+  }
+
+  // 2×2 quadrant: x = Inflation (left Falling, right Rising), y = Growth (top Rising, bottom Falling)
+  const cells: { key: DalioRegime["regimeKey"]; title: string; sub: string }[] = [
+    { key: "goldilocks",  title: "🌤️ Goldilocks",  sub: "Growth↑ Infl↓" },
+    { key: "reflation",   title: "🔥 Reflation",   sub: "Growth↑ Infl↑" },
+    { key: "deflation",   title: "❄️ Deflation",   sub: "Growth↓ Infl↓" },
+    { key: "stagflation", title: "🥵 Stagflation", sub: "Growth↓ Infl↑" },
+  ]
+
+  return (
+    <div className="rounded-2xl border border-[#1A2E52] bg-[#0C1628] p-4 mb-4 hsr-card">
+      <div className="flex items-center gap-2 mb-3">
+        <Compass className="w-4 h-4 text-violet-400" />
+        <div>
+          <div className="text-sm font-bold text-white">Dalio Regime Detector</div>
+          <div className="text-[10px] text-gray-500">
+            กรอบ Growth × Inflation ของ Ray Dalio — อนุมานจาก market proxies (copper/gold · SPY · credit · yields · oil)
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-4">
+        {/* Quadrant */}
+        <div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {cells.map(c => {
+              const active = c.key === regime.regimeKey
+              return (
+                <div key={c.key} className={cn(
+                  "rounded-lg border p-2.5 text-center transition-colors",
+                  active ? "border-violet-500/60 bg-violet-500/15" : "border-[#1A2E52] bg-[#070B18] opacity-50",
+                )}>
+                  <div className={cn("text-xs font-bold", active ? "text-white" : "text-gray-500")}>{c.title}</div>
+                  <div className="text-[9px] text-gray-500 mt-0.5">{c.sub}</div>
+                  {active && <div className="text-[8px] text-violet-300 mt-1 font-bold uppercase tracking-wider">● ตอนนี้</div>}
+                </div>
+              )
+            })}
+          </div>
+          {/* Axis direction bars */}
+          <div className="mt-3 space-y-2">
+            <AxisBar label="Growth" dir={regime.growthDir} score={regime.growthScore} />
+            <AxisBar label="Inflation" dir={regime.inflationDir} score={regime.inflationScore} />
+          </div>
+        </div>
+
+        {/* Current regime detail */}
+        <div>
+          <div className={cn("text-lg font-bold", regime.color)}>{regime.emoji} {regime.regimeLabel}</div>
+          <p className="text-xs text-gray-400 mt-1 mb-3 leading-relaxed">{regime.description}</p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+            <div className="bg-[#070B18] border border-emerald-500/20 rounded-lg p-2.5">
+              <div className="text-[10px] text-emerald-400 uppercase tracking-wider mb-1">✓ น่าจะได้เปรียบ</div>
+              <div className="flex flex-wrap gap-1">
+                {regime.favored.map((a, i) => (
+                  <span key={i} className="text-[10px] bg-emerald-500/10 text-emerald-300 border border-emerald-500/20 rounded px-1.5 py-0.5">{a}</span>
+                ))}
+              </div>
+            </div>
+            <div className="bg-[#070B18] border border-red-500/20 rounded-lg p-2.5">
+              <div className="text-[10px] text-red-400 uppercase tracking-wider mb-1">✗ ควรเลี่ยง</div>
+              <div className="flex flex-wrap gap-1">
+                {regime.avoid.map((a, i) => (
+                  <span key={i} className="text-[10px] bg-red-500/10 text-red-300 border border-red-500/20 rounded px-1.5 py-0.5">{a}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Indicator votes */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <IndicatorList title="Growth signals" items={regime.growthIndicators} />
+            <IndicatorList title="Inflation signals" items={regime.inflationIndicators} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function AxisBar({ label, dir, score }: { label: string; dir: "Rising" | "Falling"; score: number }) {
+  const rising = dir === "Rising"
+  const mag = Math.abs(score)
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] mb-0.5">
+        <span className="text-gray-400">{label}</span>
+        <span className={cn("font-bold flex items-center gap-0.5", rising ? "text-emerald-400" : "text-red-400")}>
+          {rising ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+          {dir} ({mag}% conviction)
+        </span>
+      </div>
+      <div className="h-1.5 bg-[#1A2E52] rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full", rising ? "bg-emerald-500" : "bg-red-500")} style={{ width: `${mag}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function IndicatorList({ title, items }: { title: string; items: DalioRegime["growthIndicators"] }) {
+  return (
+    <div className="bg-[#070B18] border border-[#1A2E52]/60 rounded-lg p-2">
+      <div className="text-[9px] text-gray-500 uppercase tracking-wider mb-1">{title}</div>
+      <div className="space-y-0.5">
+        {items.map((it, i) => (
+          <div key={i} className="flex items-center justify-between text-[10px]">
+            <span className="text-gray-500 truncate mr-1">{it.label}</span>
+            <span className={cn("font-mono flex items-center gap-0.5 flex-shrink-0", it.vote === "up" ? "text-emerald-400" : "text-red-400")}>
+              {it.value} {it.vote === "up" ? "↑" : "↓"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function MacroPage() {
   const [snapshot, setSnapshot] = useState<MacroSnapshot | null>(null)
+  const [regime, setRegime] = useState<DalioRegime | null>(null)
   const [loading, setLoading] = useState(false)
   const character = PAGE_CHARACTERS.analytics  // Black Swan
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await detectMacroRisks()
+      const [data, reg] = await Promise.all([detectMacroRisks(), detectDalioRegime()])
       setSnapshot(data)
+      setRegime(reg)
     } finally {
       setLoading(false)
     }
@@ -141,6 +268,9 @@ export default function MacroPage() {
           </div>
         </div>
       )}
+
+      {/* Dalio Regime Detector */}
+      {regime && <RegimeCard regime={regime} />}
 
       {/* Loading skeleton */}
       {loading && !snapshot && (
