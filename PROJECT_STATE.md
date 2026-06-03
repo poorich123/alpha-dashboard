@@ -104,6 +104,10 @@ supabase/schema.sql      — Full DB schema with RLS
     SEC EDGAR 13F-HR for 5 funds (Druckenmiller/Ackman/Tiger/Coatue/Aschenbrenner),
     QoQ diff NEW/ADD/TRIM/EXIT + $ + portfolio overlap. Replaces passive 13F as
     Smart Money panel #3. Options excluded; value in actual dollars (2023+ format).
+- **Phase 10:** Risk lens —
+  - **Bubble Score** (`bubbleScore.ts`): Dalio 6-point adapted per-stock, on Analyzer
+  - **Correlation Matrix** (`correlation.ts`): per-bucket (Sector/Category), on Analytics
+  - **Dalio Regime Detector** (`macroRisk.ts`): Growth×Inflation quadrant, on Macro Risk
 
 ## 🎯 4 Market Categories
 
@@ -119,14 +123,15 @@ Each can be filtered by:
 - **Sector:** Mag7, Semi, Data Center, Software, Defense, Space, Pharma, Energy, Finance, Dividend, Speculative, Crypto
 - **Technical:** Near support, Broke resistance (uses 52w high), RSI>70, RSI<30, Above/Below EMA50
 
-## 🗺️ Valuation Roadmap (Phase 1 ✅ done · Phase 2/3 pending)
+## 🗺️ Valuation Roadmap — ✅ ALL DONE
 
-- ✅ **Phase 1:** Fair Value engine + Conviction Fund Tracker (see Phase 9 above)
-- 🟡 **Phase 2 (next):**
-  - **Bubble Score per stock** (Dalio 6-point) — integrate into existing Analyzer
-  - **Correlation Matrix** — per bucket, not whole portfolio
-- 🟢 **Phase 3:**
-  - **Dalio Regime Detector** — add into existing Macro Risk page (no new page)
+- ✅ **Phase 1:** Fair Value engine + Conviction Fund Tracker (Phase 9 above)
+- ✅ **Phase 2:** Bubble Score (`bubbleScore.ts`, Analyzer) + Correlation Matrix
+  (`correlation.ts`, Analytics — per-bucket Sector/Category toggle)
+- ✅ **Phase 3:** Dalio Regime Detector (`detectDalioRegime` in `macroRisk.ts`,
+  rendered in Macro Risk page — Growth×Inflation 4-quadrant from market proxies)
+
+📘 **End-user how-to:** see [`USER_GUIDE.md`](USER_GUIDE.md) (Thai, plain-language).
 
 ## 🐛 Known Issues / Future Work
 
