@@ -304,7 +304,7 @@ export default function MacroPage() {
           <li><span className="text-gray-300">🛢️ Oil & Energy</span> — WTI/Brent spike = supply shock / OPEC / Middle East</li>
           <li><span className="text-gray-300">🔥 Inflation & Fed</span> — 10Y yield, TIPS expectations</li>
           <li><span className="text-gray-300">📉 Yield Curve</span> — 10Y-5Y spread (inverted = recession signal)</li>
-          <li><span className="text-gray-300">💵 Dollar (DXY)</span> — strong $ = risk-off / EM pain</li>
+          <li><span className="text-gray-300">💵 Dollar (USD/UUP)</span> — strong $ = risk-off / EM pain</li>
           <li><span className="text-gray-300">📊 Bond Vol (MOVE)</span> — "VIX of bonds" — bank/liquidity stress</li>
           <li><span className="text-gray-300">₿ Crypto</span> — BTC = risk appetite barometer</li>
         </ul>

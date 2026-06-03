@@ -7,7 +7,7 @@
  *  • Geopolitical risk   → GLD/gold, oil spike + VIX
  *  • Inflation           → TIP (TIPS), 10Y real yield
  *  • Rates / Fed         → ^TNX (10Y), ^FVX (5Y), ^IRX (3M), yield curve
- *  • Dollar strength     → DX-Y.NYB (DXY) — strong $ = risk-off
+ *  • Dollar strength     → UUP (USD index ETF proxy) — strong $ = risk-off
  *  • Crypto sentiment    → BTC-USD risk appetite proxy
  *  • Bond volatility     → ^MOVE (the "VIX of bonds")
  *  • Stock fear          → ^VIX (already in marketRegime)
@@ -276,7 +276,10 @@ async function geopoliticalFactor(): Promise<RiskFactor> {
 
 async function dollarFactor(): Promise<RiskFactor> {
   try {
-    const dxy = await getYahooCandles("DX-Y.NYB", "3mo", "1d").catch(() => null)
+    // Yahoo dropped DX-Y.NYB and DX=F (both 404). UUP (Invesco DB USD Bullish
+    // ETF) tracks the dollar index and its % moves mirror DXY ~1:1, so the
+    // change-based scoring still holds (only the absolute level differs).
+    const dxy = await getYahooCandles("UUP", "3mo", "1d").catch(() => null)
     const dxyLast = dxy ? lastVal(dxy.c) : 0
     const dxy5d   = dxy ? pctChange(dxy.c, 5) : 0
     const dxy20d  = dxy ? pctChange(dxy.c, 20) : 0
@@ -303,20 +306,20 @@ async function dollarFactor(): Promise<RiskFactor> {
 
     return {
       id: "dollar",
-      label: "Dollar Strength (DXY)",
+      label: "Dollar Strength (USD)",
       emoji: "💵",
       level: levelFromScore(score),
       score,
       metrics: [
-        { label: "DXY",       value: dxyLast.toFixed(2), tone: "neutral" },
-        { label: "DXY 5d",    value: fmtPct(dxy5d),  tone: dxy5d > 1.5 ? "warn" : "neutral" },
-        { label: "DXY 20d",   value: fmtPct(dxy20d), tone: dxy20d > 4 ? "warn" : "neutral" },
+        { label: "UUP (USD)",  value: `$${dxyLast.toFixed(2)}`, tone: "neutral" },
+        { label: "USD 5d",     value: fmtPct(dxy5d),  tone: dxy5d > 1.5 ? "warn" : "neutral" },
+        { label: "USD 20d",    value: fmtPct(dxy20d), tone: dxy20d > 4 ? "warn" : "neutral" },
       ],
       signal,
       whatToDo,
     }
   } catch {
-    return { id: "dollar", label: "Dollar Strength", emoji: "💵", level: "LOW", score: 0, metrics: [], signal: "Data unavailable", whatToDo: "—" }
+    return { id: "dollar", label: "Dollar Strength (USD)", emoji: "💵", level: "LOW", score: 0, metrics: [], signal: "Data unavailable", whatToDo: "—" }
   }
 }
 
