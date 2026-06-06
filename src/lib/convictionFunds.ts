@@ -36,6 +36,7 @@ export const CONVICTION_FUNDS: ConvictionFund[] = [
   { key: "altimeter",   manager: "Brad Gerstner",         fund: "Altimeter Capital",        cik: "0001541617", emoji: "🚀", blurb: "AI/tech กระจุก · AI supercycle thesis (growth/momentum)" },
   { key: "whalerock",   manager: "Alex Sacerdote",        fund: "Whale Rock Capital",       cik: "0001387322", emoji: "🐋", blurb: "Tech growth/momentum เฉพาะทาง" },
   { key: "lonepine",    manager: "Stephen Mandel",        fund: "Lone Pine Capital",        cik: "0001061165", emoji: "🌲", blurb: "Tiger cub · GARP/growth" },
+  { key: "ark",         manager: "Cathie Wood",           fund: "ARK Investment Management", cik: "0001697748", emoji: "🌙", blurb: "Disruptive innovation · momentum/beta สูง · เก็งกำไรจัด" },
 ]
 
 export type FundKey = (typeof CONVICTION_FUNDS)[number]["key"]
