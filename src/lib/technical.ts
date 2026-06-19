@@ -13,6 +13,23 @@ export function calculateEMA(prices: number[], period: number): number[] {
   return ema
 }
 
+/** Average True Range — volatility measure used for swing stop buffers. */
+export function calculateATR(highs: number[], lows: number[], closes: number[], period = 14): number {
+  const n = Math.min(highs.length, lows.length, closes.length)
+  if (n < period + 1) return 0
+  const trs: number[] = []
+  for (let i = 1; i < n; i++) {
+    const tr = Math.max(
+      highs[i] - lows[i],
+      Math.abs(highs[i] - closes[i - 1]),
+      Math.abs(lows[i] - closes[i - 1]),
+    )
+    trs.push(tr)
+  }
+  const slice = trs.slice(-period)
+  return slice.reduce((a, b) => a + b, 0) / slice.length
+}
+
 export function calculateRSI(prices: number[], period = 14): number {
   if (prices.length < period + 1) return 50
   let gains = 0

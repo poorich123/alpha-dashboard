@@ -16,7 +16,7 @@
 import { getQuote, getCompanyProfile } from "./finnhub"
 import { getYahooCandles, deriveQuoteFromCandle } from "./yfinance"
 import {
-  calculateEMA, calculateRSI, calculateMACD, calculateBollingerBands,
+  calculateEMA, calculateRSI, calculateMACD, calculateBollingerBands, calculateATR,
   getSupportResistance, getFibLevels, type FibLevels,
 } from "./technical"
 import type { Candle, Quote, CompanyProfile } from "@/types"
@@ -70,6 +70,30 @@ export interface TradeLevels {
   riskReward: number
 }
 
+export type SwingGrade = "A" | "B" | "C" | "WAIT" | "AVOID"
+export type SwingAction = "ENTER" | "WAIT_PULLBACK" | "AVOID"
+export type SwingTrend = "up" | "early" | "range" | "down"
+
+export interface SwingSetup {
+  grade: SwingGrade
+  action: SwingAction
+  trend: SwingTrend
+  support: number            // real pivot/EMA support to buy near
+  resistance: number         // real pivot resistance = first target
+  entryLow: number           // buy zone low (≈ support)
+  entryHigh: number          // buy zone high (support + buffer)
+  stop: number               // just below support (ATR buffer)
+  riskPct: number            // (price − stop)/price · margin of safety
+  rewardPct: number          // (resistance − price)/price
+  rr: number                 // reward ÷ risk
+  distToSupportPct: number   // how far price sits above support (0 = at support)
+  pullbackTarget?: number    // for WAIT — price to wait for
+  pullbackPct?: number
+  extended: boolean
+  reasons: string[]
+  warnings: string[]
+}
+
 export interface MarketSnapshot {
   company: string
   ticker: string
@@ -116,6 +140,7 @@ export interface AnalyzerResult {
   trendGauges: TrendStrengthGauge[]
   tradeLevels: TradeLevels
   entryRec: EntryRecommendation     // Real-time entry strategy
+  swingSetup: SwingSetup            // Swing-at-support setup grade + risk/reward
   snapshot: MarketSnapshot
 
   // Levels for chart overlays — used by both DCA (Fib) and Swing (Pivot S/R) strategies
@@ -327,62 +352,126 @@ function buildGauges(candle: Candle): TrendStrengthGauge[] {
 
 // ─── Trade Levels ─────────────────────────────────────────────────────────────
 
-function buildTradeLevels(
+// ─── Swing Setup Engine ──────────────────────────────────────────────────────
+//
+// Professional swing lens: only buy WITH the trend, AT a real support, with a
+// stop just below it (small defined risk = margin of safety) and asymmetric R/R
+// to a real resistance. If price is extended above support → WAIT for a pullback
+// rather than chasing (kills the "ALL IN at %B 0.99" behaviour).
+
+function computeSwingSetup(
   currentPrice: number,
-  sma50: number,
-  bb: { upper: number; middle: number; lower: number },
-  highs: number[],
-  support1?: number,
-  resistance1?: number,
-): TradeLevels {
-  // ── Accumulation zone (where to actually buy) ─────────────────────────
-  // Prefer real support level if available, else use SMA50 / BB middle as zone.
-  // The zone is the price range traders should accumulate into.
-  let accumLow:  number
-  let accumHigh: number
+  sr: { support1: number; support2: number; resistance1: number; resistance2: number },
+  fib: FibLevels | null,
+  ema20: number, ema50: number, ema200: number,
+  rsi: number, pctB: number, atr: number,
+): SwingSetup {
+  // ── Trend ──
+  let trend: SwingTrend = "range"
+  if (currentPrice > ema50 && ema50 > ema200) trend = "up"
+  else if (currentPrice > ema50) trend = "early"
+  else if (currentPrice < ema50 && currentPrice < ema200) trend = "down"
 
-  if (support1 && support1 < currentPrice && support1 > currentPrice * 0.85) {
-    // Strong nearby support → accumulate between support and current
-    accumLow  = support1
-    accumHigh = Math.min(currentPrice * 1.01, (support1 + currentPrice) / 2 * 1.03)
+  // ── Nearest real support below price (pivot / EMA / fib) ──
+  const supportCands = [
+    sr.support1, ema20, ema50,
+    fib?.level_382, fib?.level_500, fib?.level_618,
+  ].filter((v): v is number => typeof v === "number" && v > 0 && v <= currentPrice * 1.005)
+  const support = supportCands.length ? Math.max(...supportCands) : currentPrice * 0.92
+  const hasSupport = supportCands.length > 0
+
+  // ── Nearest real resistance above price ──
+  const resCands = [sr.resistance1, sr.resistance2, fib?.swingHigh]
+    .filter((v): v is number => typeof v === "number" && v > currentPrice * 1.005)
+  const resistance = resCands.length ? Math.min(...resCands) : currentPrice * 1.12
+  const hasResistance = resCands.length > 0
+
+  // ── Risk / reward (margin of safety) ──
+  const atrBuf = Math.max(atr, support * 0.02)
+  const stop = support - atrBuf
+  const riskPct = ((currentPrice - stop) / currentPrice) * 100
+  const rewardPct = ((resistance - currentPrice) / currentPrice) * 100
+  const rr = riskPct > 0 ? rewardPct / riskPct : 0
+  const distToSupportPct = ((currentPrice - support) / currentPrice) * 100
+
+  const entryLow = support * 0.995
+  const entryHigh = support * 1.03
+
+  const extended = rsi > 72 || pctB > 1 || (ema20 > 0 && currentPrice / ema20 - 1 > 0.08)
+
+  const reasons: string[] = []
+  const warnings: string[] = []
+
+  let grade: SwingGrade
+  let action: SwingAction
+  let pullbackTarget: number | undefined
+  let pullbackPct: number | undefined
+
+  const eligible = trend === "up" || trend === "early" || trend === "range"
+
+  if (trend === "down") {
+    grade = "AVOID"; action = "AVOID"
+    warnings.push("แนวโน้มเป็นขาลง (ใต้ EMA50 & EMA200) — ไม่เข้า long")
+  } else if (!hasSupport || !hasResistance) {
+    grade = "AVOID"; action = "AVOID"
+    warnings.push("ไม่มีแนวรับ/แนวต้านจริงที่ชัดเจน — ไม่มี setup")
+  } else if (rr < 1.5) {
+    grade = "WAIT"; action = "WAIT_PULLBACK"; pullbackTarget = entryHigh
+    warnings.push(`R/R ${rr.toFixed(1)}× ที่ราคานี้ต่ำ — รอราคาย่อมาที่แนวรับ $${entryHigh.toFixed(2)}`)
+  } else if (extended) {
+    grade = "WAIT"; action = "WAIT_PULLBACK"; pullbackTarget = entryHigh
+    if (rsi > 72) warnings.push(`RSI ${rsi.toFixed(0)} — overbought`)
+    if (pctB > 1) warnings.push(`ราคาทะลุ upper BB (%B ${pctB.toFixed(2)})`)
+    if (ema20 > 0 && currentPrice / ema20 - 1 > 0.08) warnings.push(`ราคาสูงกว่า EMA20 ${((currentPrice / ema20 - 1) * 100).toFixed(0)}% — ยืดเกิน`)
+    warnings.push(`อย่าไล่ราคา · รอ pullback ลงมาที่แนวรับจริง $${entryHigh.toFixed(2)}`)
+  } else if (distToSupportPct > 8) {
+    grade = "WAIT"; action = "WAIT_PULLBACK"; pullbackTarget = entryHigh
+    warnings.push(`ราคาห่างแนวรับจริง ${distToSupportPct.toFixed(0)}% — risk กว้างไป รอ pullback ลงมาที่ $${entryHigh.toFixed(2)}`)
+  } else if (distToSupportPct <= 3 && rr >= 2.5 && riskPct <= 8) {
+    grade = "A"; action = "ENTER"
+    reasons.push(`ราคาอยู่ที่แนวรับจริง (ห่าง ${distToSupportPct.toFixed(1)}%) · risk เพียง ${riskPct.toFixed(1)}% ถึง stop · R/R ${rr.toFixed(1)}×`)
+  } else if (distToSupportPct <= 5 && rr >= 2 && rsi < 70) {
+    grade = "B"; action = "ENTER"
+    reasons.push(`ใกล้แนวรับจริง (ห่าง ${distToSupportPct.toFixed(1)}%) · R/R ${rr.toFixed(1)}× · risk ${riskPct.toFixed(1)}%`)
   } else {
-    // No clear support → accumulate between BB middle / SMA50 and current
-    const baseLow = Math.max(bb.middle, sma50)
-    accumLow  = Math.max(baseLow, currentPrice * 0.95)
-    accumHigh = currentPrice * 1.01
-  }
-  // Sanity: ensure low < high
-  if (accumLow >= accumHigh) {
-    accumLow  = currentPrice * 0.97
-    accumHigh = currentPrice * 1.01
+    grade = "C"; action = "ENTER"
+    reasons.push(`อยู่กลางทาง (ห่างแนวรับ ${distToSupportPct.toFixed(1)}%) · R/R ${rr.toFixed(1)}× — เข้าได้บางส่วน หรือรอย่อให้ใกล้แนวรับ`)
   }
 
-  // ── Take profit targets ────────────────────────────────────────────────
-  // TP1 = nearest resistance OR +10% (whichever closer)
-  // TP2 = +17% (or further resistance)
-  // TP3 = +28% (moon target)
-  const tp1 = resistance1 && resistance1 > currentPrice * 1.04 && resistance1 < currentPrice * 1.15
-    ? resistance1
-    : currentPrice * 1.10
-  const tp2 = currentPrice * 1.17
-  const tp3 = currentPrice * 1.28
+  if (action === "WAIT_PULLBACK" && pullbackTarget) {
+    pullbackPct = ((pullbackTarget - currentPrice) / currentPrice) * 100
+  }
+  if (action === "ENTER") {
+    reasons.push(`เป้าแรกที่แนวต้านจริง $${resistance.toFixed(2)} (+${rewardPct.toFixed(1)}%) · stop $${stop.toFixed(2)} (−${riskPct.toFixed(1)}%)`)
+    if (!eligible) warnings.push("แนวโน้มไม่ชัด — ระวัง")
+  }
 
-  // ── Stop loss ──────────────────────────────────────────────────────────
-  // Use the tightest of: support1 - 2%, SMA50 - 2%, or -8% from current.
-  // Tighter SL = better R/R. Never wider than -8%.
-  const slCandidates = [
-    support1 ? support1 * 0.98 : 0,
-    sma50 * 0.98,
-    currentPrice * 0.92,
-  ].filter(v => v > 0 && v < currentPrice)
-  const sl = slCandidates.length > 0 ? Math.max(...slCandidates) : currentPrice * 0.92
+  return {
+    grade, action, trend,
+    support, resistance, entryLow, entryHigh, stop,
+    riskPct, rewardPct, rr, distToSupportPct,
+    pullbackTarget, pullbackPct, extended,
+    reasons, warnings,
+  }
+}
+
+// ─── Trade Levels — anchored to the swing setup (real S/R) ────────────────────
+
+function buildTradeLevels(currentPrice: number, swing: SwingSetup, sr: { resistance2: number }): TradeLevels {
+  // Buy zone = swing entry zone (around real support)
+  const accumLow = swing.entryLow
+  const accumHigh = swing.entryHigh
+
+  // TP1 = real resistance · TP2 = next real resistance or measured move · TP3 = extension
+  const tp1 = swing.resistance
+  const tp2 = sr.resistance2 > tp1 * 1.02 ? sr.resistance2 : tp1 + (tp1 - swing.support)  // measured move
+  const tp3 = Math.max(tp2 + (tp2 - tp1), currentPrice * 1.28)
+  const sl = swing.stop
 
   const slPct  = ((sl - currentPrice) / currentPrice) * 100
   const tp1Pct = ((tp1 - currentPrice) / currentPrice) * 100
   const tp2Pct = ((tp2 - currentPrice) / currentPrice) * 100
   const tp3Pct = ((tp3 - currentPrice) / currentPrice) * 100
-
-  const riskReward = Math.abs(slPct) > 0 ? tp2Pct / Math.abs(slPct) : 0
 
   return {
     currentPrice,
@@ -392,7 +481,7 @@ function buildTradeLevels(
     tp2, tp2Pct,
     tp3, tp3Pct,
     sl,  slPct,
-    riskReward,
+    riskReward: swing.rr,   // reward to real resistance ÷ risk to stop
   }
 }
 
@@ -415,20 +504,6 @@ function sma(arr: number[], period: number): number {
 //
 // Returns null for HOLD/SELL/STRONG SELL (signal not actionable).
 
-const TIER_ORDER: EntryStrategy[] = ["WAIT_PULLBACK", "PARTIAL_30", "SPLIT_50", "ALL_IN"]
-
-function downgrade(t: EntryStrategy): EntryStrategy {
-  if (t === "SKIP" || t === "WAIT_PULLBACK") return t
-  const idx = TIER_ORDER.indexOf(t)
-  return idx > 0 ? TIER_ORDER[idx - 1] : t
-}
-
-function upgrade(t: EntryStrategy): EntryStrategy {
-  if (t === "SKIP" || t === "WAIT_PULLBACK") return t
-  const idx = TIER_ORDER.indexOf(t)
-  return idx >= 0 && idx < TIER_ORDER.length - 1 ? TIER_ORDER[idx + 1] : t
-}
-
 const STRATEGY_META: Record<EntryStrategy, { label: string; emoji: string; color: string }> = {
   ALL_IN:         { label: "ALL IN",           emoji: "🟢", color: "text-emerald-400" },
   SPLIT_50:       { label: "SPLIT 50/50",      emoji: "🟡", color: "text-yellow-400" },
@@ -439,242 +514,60 @@ const STRATEGY_META: Record<EntryStrategy, { label: string; emoji: string; color
 
 function determineEntry(
   signal: SignalLevel,
-  confidence: Confidence,
+  swing: SwingSetup,
   currentPrice: number,
-  accumLow: number,
-  accumHigh: number,
-  bb: { upper: number; middle: number; lower: number },
-  riskReward: number,
-  volumes: number[],
-  trendGauges: TrendStrengthGauge[],
-  thesis: ThesisCheck[],          // ← NEW: pass thesis to check specific FAILs
-  changePctToday: number,          // ← NEW: today's % change (FOMO detection)
+  pctB: number,
 ): EntryRecommendation {
-  // Reference: distance from Accum Top (the visible upper bound of buy zone).
-  // - Negative dist = price is in or below buy zone → great entry
-  // - Positive dist = price has risen above buy zone → chasing
-  const distFromAccum = ((currentPrice - accumHigh) / accumHigh) * 100
-  const pctB = bb.upper > bb.lower ? (currentPrice - bb.lower) / (bb.upper - bb.lower) : 0.5
-  const pullbackTarget = accumHigh
-  const pullbackPct = ((accumHigh - currentPrice) / currentPrice) * 100
+  const distFromAccum = ((currentPrice - swing.entryHigh) / swing.entryHigh) * 100
 
-  // Volume ratio
-  const vol5  = volumes.slice(-5).reduce((a,b)=>a+b,0) / 5
-  const vol20 = volumes.slice(-20).reduce((a,b)=>a+b,0) / 20
-  const volRatio = vol20 > 0 ? vol5 / vol20 : 1
-
-  // 1W trend gauge
-  const week1 = trendGauges.find(g => g.timeframe === "1W")?.score ?? 50
-  const day1  = trendGauges.find(g => g.timeframe === "1D")?.score ?? 50
-  const month1 = trendGauges.find(g => g.timeframe === "1M")?.score ?? 50
-
-  const warnings: string[] = []
-  const upgrades: string[] = []
-
-  // ── Hard skips (no recommendation) ────────────────────────────────────────
-  if (signal === "HOLD" || signal === "SELL" || signal === "STRONG SELL") {
+  // Never long into a strong-sell technical reading, or a no-setup structure.
+  if (signal === "STRONG SELL" || swing.action === "AVOID") {
     return {
-      strategy: "SKIP",
-      ...STRATEGY_META.SKIP,
-      sizeNow: 0,
-      sizeOnPullback: 0,
-      distFromAccum, pctB,
-      reasoning: `Signal "${signal}" — ไม่อยู่ในกลุ่มเข้าซื้อ · skip`,
-      warnings: [`Signal ไม่ใช่ BUY/STRONG BUY`],
+      strategy: "SKIP", ...STRATEGY_META.SKIP,
+      sizeNow: 0, sizeOnPullback: 0, distFromAccum, pctB,
+      reasoning: swing.warnings[0] || `Signal "${signal}" — ไม่มี setup เข้าซื้อ · skip`,
+      warnings: swing.warnings.length ? swing.warnings : ["ไม่มี swing setup"],
       upgrades: [],
     }
   }
 
-  if (riskReward < 1.5) {
+  // Extended / poor location → wait for a pullback to REAL support (no chasing).
+  if (swing.action === "WAIT_PULLBACK") {
+    const target = swing.pullbackTarget ?? swing.entryHigh
+    const pct = swing.pullbackPct ?? ((target - currentPrice) / currentPrice) * 100
     return {
-      strategy: "SKIP",
-      ...STRATEGY_META.SKIP,
-      sizeNow: 0,
-      sizeOnPullback: 0,
+      strategy: "WAIT_PULLBACK", ...STRATEGY_META.WAIT_PULLBACK,
+      sizeNow: 0, sizeOnPullback: 100,
+      pullbackTarget: target, pullbackPct: pct,
       distFromAccum, pctB,
-      reasoning: `R/R เพียง ${riskReward.toFixed(2)}× — ต่ำกว่า 1.5× ไม่คุ้มเสี่ยง`,
-      warnings: [`R/R ${riskReward.toFixed(2)}× < 1.5`],
+      reasoning: `ราคา $${currentPrice.toFixed(2)} ยังไม่ใช่จุดเข้าที่ปลอดภัย — รอ pullback ลงมาที่แนวรับจริง $${target.toFixed(2)} (${pct.toFixed(1)}%) · margin of safety เกิดที่แนวรับ ไม่ใช่ที่ยอด`,
+      warnings: swing.warnings,
       upgrades: [],
     }
   }
 
-  if (week1 < 30) {
-    return {
-      strategy: "WAIT_PULLBACK",
-      ...STRATEGY_META.WAIT_PULLBACK,
-      sizeNow: 0,
-      sizeOnPullback: 100,
-      pullbackTarget,
-      pullbackPct,
-      distFromAccum, pctB,
-      reasoning: `1W trend gauge ${week1}/100 = Strong Sell · momentum ระยะกลางเสีย · รอ confirmation`,
-      warnings: [`1W = Strong Sell (${week1})`],
-      upgrades: [],
-    }
-  }
+  // ENTER — size by setup grade (A prime → full · B → 60% · C → 30%).
+  let strategy: EntryStrategy
+  let sizeNow: number
+  if (swing.grade === "A") { strategy = "ALL_IN"; sizeNow = 100 }
+  else if (swing.grade === "B") { strategy = "SPLIT_50"; sizeNow = 60 }
+  else { strategy = "PARTIAL_30"; sizeNow = 30 }
+  const sizeOnPullback = 100 - sizeNow
+  const meta = STRATEGY_META[strategy]
 
-  // ── Base tier from distance to Accum Top ──────────────────────────────────
-  //   ≤  0%  : ราคาในหรือใต้ accum zone → ALL IN
-  //   0–2%   : เหนือเล็กน้อย              → SPLIT 50/50
-  //   2–5%   : เหนือพอควร                 → PARTIAL 30%
-  //   > 5%   : เหนือมาก (chasing)         → WAIT
-  let baseTier: EntryStrategy
-  if (distFromAccum <= 0) {
-    baseTier = "ALL_IN"
-  } else if (distFromAccum <= 2) {
-    baseTier = "SPLIT_50"
-  } else if (distFromAccum <= 5) {
-    baseTier = "PARTIAL_30"
-  } else {
-    baseTier = "WAIT_PULLBACK"
-  }
-  let tier: EntryStrategy = baseTier
-
-  // ── Downgrade modifiers ───────────────────────────────────────────────────
-
-  // Critical thesis FAILs (read specific checks)
-  const macdCheck     = thesis.find(t => t.id === "macd")
-  const volCheck      = thesis.find(t => t.id === "vol")
-  const trendCheck    = thesis.find(t => t.id === "trend")
-
-  if (macdCheck?.status === "FAIL") {
-    tier = downgrade(tier)
-    warnings.push(`MACD bearish — momentum หาย แม้ราคาเด้ง`)
-  }
-  if (volCheck?.status === "FAIL") {
-    tier = downgrade(tier)
-    warnings.push(`Volume FAIL — ไม่มี buyer สนับสนุน`)
-  }
-  if (trendCheck?.status === "FAIL") {
-    tier = downgrade(tier)
-    warnings.push(`Trend Stack FAIL — โครงสร้างขาขึ้นยังไม่ confirm`)
-  }
-
-  // 1W trend gauge — Neutral (30-50) แปลว่า sideways
-  if (week1 < 50 && week1 >= 30) {
-    tier = downgrade(tier)
-    warnings.push(`1W gauge ${week1}/100 (Neutral) — momentum ระยะกลางยังไม่ confirm`)
-  }
-
-  // FOMO detection — single-day spike >10% with above-avg volume = exhaustion risk
-  if (changePctToday > 10) {
-    tier = downgrade(tier)
-    warnings.push(`+${changePctToday.toFixed(1)}% ใน 1 วัน — เสี่ยง exhaustion · รอ pullback ดีกว่า`)
-  } else if (changePctToday > 7) {
-    warnings.push(`+${changePctToday.toFixed(1)}% ใน 1 วัน — momentum spike · ระวัง mean reversion`)
-  }
-
-  // BB / Volume / Confidence / R/R modifiers
-  if (pctB > 1.0) {
-    tier = downgrade(tier)
-    warnings.push(`ราคาทะลุ upper BB (%B=${pctB.toFixed(2)}) — overextended · เสี่ยง mean reversion`)
-  }
-  if (confidence === "LOW") {
-    tier = downgrade(tier)
-    warnings.push(`Confidence LOW`)
-  }
-  if (volRatio < 0.7) {
-    tier = downgrade(tier)
-    warnings.push(`Volume drying (${(volRatio*100).toFixed(0)}% ของ avg20)`)
-  }
-  if (riskReward < 2.0) {
-    tier = downgrade(tier)
-    warnings.push(`R/R ${riskReward.toFixed(2)}× ต่ำกว่า 2.0× (borderline)`)
-  }
-
-  // ── Upgrade modifiers (Premium setup boost) ──────────────────────────────
-  const premiumSetup =
-    confidence === "HIGH" &&
-    signal === "STRONG BUY" &&
-    week1 >= 80 &&
-    month1 >= 80 &&
-    day1 >= 80 &&
-    volRatio >= 1.2
-
-  if (premiumSetup) {
-    tier = upgrade(tier)
-    upgrades.push(`Premium setup: HIGH conf + STRONG BUY + all-TF Strong Buy + volume surge`)
-  } else if (confidence === "HIGH" && signal === "STRONG BUY" && week1 >= 60) {
-    upgrades.push(`Strong setup but premium upgrade ไม่ได้ใช้ — already at top tier`)
-  }
-
-  // ── Sanity guard: if tier ended at WAIT_PULLBACK but price is NOT above accum,
-  // it means the downgrade came from quality issues — NOT from being too high.
-  // In that case → SKIP (don't trade) is more accurate than "wait for pullback".
-  if (tier === "WAIT_PULLBACK" && distFromAccum <= 0) {
-    tier = "SKIP"
-  }
-
-  // ── Build the recommendation ──────────────────────────────────────────────
-  const meta = STRATEGY_META[tier]
-  let sizeNow = 0, sizeOnPullback = 0
-  let reasoning = ""
-
-  // Helper: signed format ("-0.5%" or "+2.1%")
-  const fmtSigned = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`
-
-  switch (tier) {
-    case "ALL_IN":
-      sizeNow = 100
-      sizeOnPullback = 0
-      reasoning = distFromAccum <= -1
-        ? `ราคา $${currentPrice.toFixed(2)} อยู่ ${Math.abs(distFromAccum).toFixed(1)}% ใต้ accum top $${accumHigh.toFixed(2)} — อยู่ในโซนเข้าซื้อพอดี · เข้าได้เต็มไม้`
-        : `ราคา $${currentPrice.toFixed(2)} อยู่ใน accum zone ($${accumLow.toFixed(2)}–$${accumHigh.toFixed(2)}) — เข้าได้เต็มไม้`
-      break
-    case "SPLIT_50":
-      sizeNow = 50
-      sizeOnPullback = 50
-      reasoning = `ราคา $${currentPrice.toFixed(2)} เหนือ accum top $${accumHigh.toFixed(2)} เพียง +${distFromAccum.toFixed(1)}% — เข้าครึ่งไม้ตอนนี้ · เก็บอีก 50% รอ pullback ลงไปที่ $${pullbackTarget.toFixed(2)}`
-      break
-    case "PARTIAL_30":
-      sizeNow = 30
-      sizeOnPullback = 70
-      reasoning = `ราคา $${currentPrice.toFixed(2)} เหนือ accum top $${accumHigh.toFixed(2)} +${distFromAccum.toFixed(1)}% — เข้าทดลอง 30% เพื่อไม่ miss the move · เก็บ 70% รอ pullback ลงไปที่ $${pullbackTarget.toFixed(2)} (${pullbackPct.toFixed(1)}%)`
-      break
-    case "WAIT_PULLBACK":
-      sizeNow = 0
-      sizeOnPullback = 100
-      if (baseTier === "WAIT_PULLBACK") {
-        // Genuinely too far above accum top (>5%)
-        reasoning = `ราคา $${currentPrice.toFixed(2)} เหนือ accum top $${accumHigh.toFixed(2)} +${distFromAccum.toFixed(1)}% — ไกลเกินไป · ห้ามไล่ราคา · รอ pullback ลงไปที่ $${pullbackTarget.toFixed(2)} (${pullbackPct.toFixed(1)}%)`
-      } else {
-        // Reached WAIT due to downgrades — distance is moderate but setup quality bad
-        const baseLabel = baseTier === "PARTIAL_30" ? "PARTIAL 30%"
-                       : baseTier === "SPLIT_50"   ? "SPLIT 50/50"
-                       : "ALL IN"
-        reasoning = `ราคา $${currentPrice.toFixed(2)} เหนือ accum top +${distFromAccum.toFixed(1)}% (ในระยะ ${baseLabel} ปกติ) — แต่มี red flags ${warnings.length} ข้อ ทำให้ setup ไม่ clean · รอทั้ง pullback ลงไปที่ $${pullbackTarget.toFixed(2)} (${pullbackPct.toFixed(1)}%) AND สัญญาณ confirm (MACD bullish cross / volume surge / 1W ≥ 60) ก่อนเข้า`
-      }
-      break
-    case "SKIP":
-      sizeNow = 0
-      sizeOnPullback = 0
-      if (warnings.length >= 3) {
-        reasoning = `ราคา $${currentPrice.toFixed(2)} อยู่ในโซน buy (${fmtSigned(distFromAccum)} from accum top) แต่มี red flags ${warnings.length} ข้อ — setup ไม่ clean · **SKIP** ดีกว่า · รอ MACD bullish cross + 1W trend confirm + volume surge ก่อนกลับมาดู`
-      } else {
-        reasoning = `Setup ไม่ผ่านเกณฑ์ · skip ดีกว่า`
-      }
-      break
-  }
-
-  // Only show pullback target if the wait is genuinely about price coming down
-  // (i.e., price IS above accum top). Otherwise the "wait" is for confirmation.
-  const showPullback = sizeOnPullback > 0 && distFromAccum > 0
+  const reasoning = swing.reasons.join(" · ") +
+    (sizeOnPullback > 0 ? ` · เก็บอีก ${sizeOnPullback}% ถ้าย่อมาที่แนวรับ $${swing.entryHigh.toFixed(2)}` : "")
 
   return {
-    strategy: tier,
-    label: meta.label,
-    emoji: meta.emoji,
-    color: meta.color,
-    sizeNow,
-    sizeOnPullback,
-    entryPriceNow: sizeNow > 0 ? currentPrice : undefined,
-    pullbackTarget: showPullback ? pullbackTarget : undefined,
-    pullbackPct: showPullback ? pullbackPct : undefined,
-    distFromAccum,
-    pctB,
+    strategy, label: meta.label, emoji: meta.emoji, color: meta.color,
+    sizeNow, sizeOnPullback,
+    entryPriceNow: currentPrice,
+    pullbackTarget: sizeOnPullback > 0 ? swing.entryHigh : undefined,
+    pullbackPct: sizeOnPullback > 0 ? ((swing.entryHigh - currentPrice) / currentPrice) * 100 : undefined,
+    distFromAccum, pctB,
     reasoning,
-    warnings,
-    upgrades,
+    warnings: swing.warnings,
+    upgrades: swing.grade === "A" ? ["Grade A — prime swing setup ที่แนวรับจริง risk เล็ก R/R สูง"] : [],
   }
 }
 
@@ -776,10 +669,16 @@ export async function analyzeStock(ticker: string): Promise<AnalyzerResult | nul
     const trendGauges = buildGauges(candle)
     const avgGauge = trendGauges.reduce((a, g) => a + g.score, 0) / trendGauges.length
 
-    // Trade levels — use real S/R from price pivots for accum zone + TP1
+    // ── Swing setup — real pivot S/R + ATR stop → grade + entry zone ──────
     const sr = getSupportResistance(highs, lows, currentPrice)
     const fibLevels = getFibLevels(highs, lows, currentPrice, 252)  // 1-year swing
-    const tradeLevels = buildTradeLevels(currentPrice, sma50, bb, highs, sr.support1, sr.resistance1)
+    const atr = calculateATR(highs, lows, closes)
+    const ema20 = lastVal(calculateEMA(closes, 20))
+    const ema50v = lastVal(ema50arr)
+    const ema200v = lastVal(ema200arr)
+    const pctB = bb.upper > bb.lower ? (currentPrice - bb.lower) / (bb.upper - bb.lower) : 0.5
+    const swingSetup = computeSwingSetup(currentPrice, sr, fibLevels, ema20, ema50v, ema200v, rsi, pctB, atr)
+    const tradeLevels = buildTradeLevels(currentPrice, swingSetup, sr)
 
     // ── Signal logic — use ratio (passing/scorable) not raw count ──
     // This makes "5/6 with 2 N/A" equivalent to "5/6" without N/A penalty.
@@ -797,20 +696,8 @@ export async function analyzeStock(ticker: string): Promise<AnalyzerResult | nul
     if (scorePct >= 80) confidence = "HIGH"
     else if (scorePct >= 60) confidence = "MEDIUM"
 
-    // ── Entry strategy (real-time recommendation) ─────────────────────────
-    const entryRec = determineEntry(
-      signal,
-      confidence,
-      currentPrice,
-      tradeLevels.tradeAccumLow,
-      tradeLevels.tradeAccumHigh,
-      bb,
-      tradeLevels.riskReward,
-      candle.v,
-      trendGauges,
-      thesis,
-      quote.dp ?? 0,
-    )
+    // ── Entry strategy — driven by the swing setup (enter at support / wait) ──
+    const entryRec = determineEntry(signal, swingSetup, currentPrice, pctB)
 
     // Market snapshot
     const snapshot: MarketSnapshot = {
@@ -854,6 +741,7 @@ export async function analyzeStock(ticker: string): Promise<AnalyzerResult | nul
       trendGauges,
       tradeLevels,
       entryRec,
+      swingSetup,
       snapshot,
       srLevels: sr,
       fibLevels,

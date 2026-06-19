@@ -25,6 +25,16 @@ function confColor(c: string): string {
   return "text-red-400"
 }
 
+function gradeStyle(g: MarketScanResult["setupGrade"]): string {
+  switch (g) {
+    case "A":     return "text-emerald-300 bg-emerald-500/15 border-emerald-500/40"
+    case "B":     return "text-green-300 bg-green-500/10 border-green-500/30"
+    case "C":     return "text-yellow-300 bg-yellow-500/10 border-yellow-500/30"
+    case "WAIT":  return "text-orange-300 bg-orange-500/10 border-orange-500/30"
+    default:      return "text-gray-500 bg-gray-700/30 border-gray-700"
+  }
+}
+
 export function StockTable({ stocks, loading }: Props) {
   if (stocks.length === 0 && !loading) {
     return (
@@ -45,6 +55,7 @@ export function StockTable({ stocks, loading }: Props) {
               <th className="text-right py-3 px-2">MCap</th>
               <th className="text-left py-3 px-2">Trend</th>
               <th className="text-center py-3 px-2">Signal</th>
+              <th className="text-center py-3 px-2">Setup · R/R</th>
               <th className="text-center py-3 px-2">Score</th>
               <th className="text-center py-3 px-2">RSI</th>
               <th className="text-right py-3 px-2">Price</th>
@@ -126,6 +137,19 @@ function StockRow({ stock: s, rank }: { stock: MarketScanResult; rank: number })
             {s.signal}
           </span>
           <span className={cn("text-[9px] font-semibold", confCol)}>{s.confidence}</span>
+        </div>
+      </td>
+
+      {/* Swing Setup grade + R/R */}
+      <td className="py-3 px-2 text-center">
+        <div className="flex flex-col items-center gap-1">
+          <span className={cn("text-[10px] font-bold px-2 py-0.5 rounded border", gradeStyle(s.setupGrade))}>
+            {s.setupGrade === "WAIT" ? "WAIT" : s.setupGrade === "AVOID" ? "—" : s.setupGrade}
+          </span>
+          <span className={cn("text-[9px] font-mono",
+            s.rr >= 2.5 ? "text-emerald-400" : s.rr >= 2 ? "text-green-400" : s.rr >= 1.5 ? "text-yellow-400" : "text-gray-500")}>
+            {s.rr > 0 ? `${s.rr.toFixed(1)}×` : "—"}
+          </span>
         </div>
       </td>
 

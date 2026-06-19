@@ -57,10 +57,17 @@ export interface MarketScanResult {
   sl: number
   riskReward: number
 
+  // Swing setup (real pivot S/R based)
+  setupGrade: AnalyzerResult["swingSetup"]["grade"]
+  swingAction: AnalyzerResult["swingSetup"]["action"]
+  distToSupportPct: number  // how far price sits above real support (0 = at support)
+  riskPct: number           // distance to stop = margin of safety
+  rr: number                // reward to real resistance ÷ risk to stop
+
   // Technical state (for filters)
   rsi: number              // 0-100
-  support1: number         // nearest support below current price
-  resistance1: number      // nearest resistance above current price (= TP1 proxy)
+  support1: number         // nearest REAL pivot support below current price
+  resistance1: number      // nearest REAL pivot resistance above current price
   aboveEma50: boolean
   aboveEma200: boolean
   week52High: number       // 52-week high (for "broke resistance" detection)
@@ -110,9 +117,14 @@ function fromAnalyzer(r: AnalyzerResult): MarketScanResult {
     accumHigh: r.tradeLevels.tradeAccumHigh,
     sl: r.tradeLevels.sl,
     riskReward: r.tradeLevels.riskReward,
+    setupGrade: r.swingSetup.grade,
+    swingAction: r.swingSetup.action,
+    distToSupportPct: r.swingSetup.distToSupportPct,
+    riskPct: r.swingSetup.riskPct,
+    rr: r.swingSetup.rr,
     rsi,
-    support1:     r.tradeLevels.tradeAccumLow,   // proxy: accum zone low = support
-    resistance1:  r.tradeLevels.tp1,             // proxy: TP1 = nearest resistance
+    support1:     r.srLevels.support1,     // REAL pivot support
+    resistance1:  r.srLevels.resistance1,  // REAL pivot resistance
     aboveEma50:   r.snapshot.currentPrice > r.snapshot.sma50,
     aboveEma200:  r.snapshot.currentPrice > r.snapshot.sma200,
     week52High:   r.snapshot.week52High,
@@ -149,6 +161,31 @@ export function sortByConviction(results: MarketScanResult[]): MarketScanResult[
     const confDiff = CONFIDENCE_RANK[b.confidence] - CONFIDENCE_RANK[a.confidence]
     if (confDiff !== 0) return confDiff
     // 4. Market cap (larger first — more liquid)
+    return b.marketCapNum - a.marketCapNum
+  })
+}
+
+// ─── Swing-ready ranking (default) — safest entry at real support first ──────
+//
+// Surface stocks sitting AT a real support in an uptrend with strong R/R (the
+// low-risk entries) ahead of extended momentum names that should be waited out.
+
+const SWING_GRADE_RANK: Record<MarketScanResult["setupGrade"], number> = {
+  A: 5, B: 4, C: 3, WAIT: 2, AVOID: 1,
+}
+
+export function sortBySwingSetup(results: MarketScanResult[]): MarketScanResult[] {
+  return [...results].sort((a, b) => {
+    // 1. Setup grade (A prime → AVOID)
+    const gradeDiff = SWING_GRADE_RANK[b.setupGrade] - SWING_GRADE_RANK[a.setupGrade]
+    if (gradeDiff !== 0) return gradeDiff
+    // 2. Better R/R first
+    if (Math.abs(b.rr - a.rr) > 0.2) return b.rr - a.rr
+    // 3. Closer to real support first (smaller dist = better entry)
+    if (Math.abs(a.distToSupportPct - b.distToSupportPct) > 0.5) return a.distToSupportPct - b.distToSupportPct
+    // 4. Stronger signal, then liquidity
+    const sigDiff = SIGNAL_RANK[b.signal] - SIGNAL_RANK[a.signal]
+    if (sigDiff !== 0) return sigDiff
     return b.marketCapNum - a.marketCapNum
   })
 }
@@ -216,8 +253,8 @@ export async function scanMarket(
     }
   }
 
-  // Sort by signal conviction (STRONG BUY → STRONG SELL)
-  const sorted = sortByConviction(results)
+  // Default: swing-ready ranking (safest entry at real support first)
+  const sorted = sortBySwingSetup(results)
 
   cache.set(getCacheKey(category), { results: sorted, timestamp: Date.now() })
   return sorted

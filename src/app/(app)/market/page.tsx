@@ -51,7 +51,7 @@ const AUTO_REFRESH_OPTIONS = [0, 5, 10, 15] as const
 const AUTO_REFRESH_KEY = "market.autoRefreshMin"
 
 type FilterKey = "all" | "buy" | "strong_buy" | "high_conf"
-type TechFilterKey = "none" | "near_support" | "broke_resistance" | "rsi_high" | "rsi_low" | "above_ema50" | "below_ema50"
+type TechFilterKey = "none" | "swing_ready" | "near_support" | "broke_resistance" | "rsi_high" | "rsi_low" | "above_ema50" | "below_ema50"
 
 const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
   { key: "all",        label: "All",         emoji: "🌐" },
@@ -62,6 +62,7 @@ const FILTERS: { key: FilterKey; label: string; emoji: string }[] = [
 
 const TECH_FILTERS: { key: TechFilterKey; label: string }[] = [
   { key: "none",             label: "—" },
+  { key: "swing_ready",      label: "🎯 Swing-ready (A/B)" },
   { key: "near_support",     label: "ใกล้แนวรับ" },
   { key: "broke_resistance", label: "ทะลุแนวต้าน" },
   { key: "rsi_high",         label: "RSI > 70" },
@@ -78,6 +79,9 @@ function countTechMatches(stocks: MarketScanResult[], key: TechFilterKey): numbe
 
 function matchTechFilter(s: MarketScanResult, key: TechFilterKey): boolean {
   switch (key) {
+    case "swing_ready":
+      // Prime/ok swing entry: at real support, uptrend, good R/R
+      return s.setupGrade === "A" || s.setupGrade === "B"
     case "near_support":
       // Within 3% of support level (good buy zone)
       return s.support1 > 0 && (s.currentPrice - s.support1) / s.currentPrice < 0.03
