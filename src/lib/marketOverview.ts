@@ -280,7 +280,7 @@ export async function fetchMarketIndices(): Promise<IndexQuote[]> {
     { symbol: "^VIX",  label: "VIX",      description: "Fear Index" },
     { symbol: "GC=F",  label: "Gold",     description: "XAU/USD Futures" },
     { symbol: "CL=F",  label: "WTI Crude Oil", description: "Crude Oil Futures" },
-    { symbol: "DX-Y.NYB", label: "DXY",   description: "US Dollar Index" },
+    { symbol: "UUP",      label: "USD",    description: "US Dollar Index ETF (UUP)" },  // DX-Y.NYB/DX=F 404 on Yahoo
   ]
 
   const results = await Promise.allSettled(

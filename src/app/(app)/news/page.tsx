@@ -31,6 +31,8 @@ function isMacroNews(n: NewsItem): boolean {
   return MACRO_KEYWORDS.some(kw => hay.includes(kw))
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
 type Filter = "all" | "holdings" | "macro" | "earnings"
 
 export default function NewsPage() {
@@ -85,26 +87,34 @@ export default function NewsPage() {
           earningsData.filter(e => myTickerSet.has(e.symbol)).map(e => e.symbol)
         )
         const missing = tickers.filter(t => !foundInBulk.has(t))
-        if (missing.length > 0) {
-          const BATCH = 5
-          for (let i = 0; i < missing.length; i += BATCH) {
-            const batch = missing.slice(i, i + BATCH)
-            const results = await Promise.allSettled(batch.map(t => getEarnings(t)))
-            for (const r of results) {
-              if (r.status === "fulfilled") {
-                const upcoming = r.value.filter(e => new Date(e.date) >= new Date())
-                mergedEarnings = [...mergedEarnings, ...upcoming]
-              }
+        // Throttled: small batches + delay so the Finnhub free-tier rate limit
+        // isn't tripped (a burst returns 429 → every ticker shows 0 results).
+        const BATCH = 4
+        for (let i = 0; i < missing.length; i += BATCH) {
+          const batch = missing.slice(i, i + BATCH)
+          const results = await Promise.allSettled(batch.map(t => getEarnings(t)))
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              const upcoming = r.value.filter(e => new Date(e.date) >= new Date())
+              mergedEarnings = [...mergedEarnings, ...upcoming]
             }
           }
+          if (i + BATCH < missing.length) await sleep(350)
         }
       }
       setEarnings(mergedEarnings)
 
-      // ── Fetch news for ALL holdings (parallel, batch 5) ──
+      // ── Fetch news for ALL holdings — throttled (batch 3 + delay) so we don't
+      //    hit Finnhub's rate limit; update the UI after each batch so partial
+      //    results render even if a later batch fails. ──
       if (tickers.length > 0) {
         const byTicker: Record<string, NewsItem[]> = {}
-        const BATCH = 5
+        // Auto-expand first 3 tickers up front
+        const auto: Record<string, boolean> = {}
+        tickers.slice(0, 3).forEach(t => { auto[t] = true })
+        setExpandedTickers(auto)
+
+        const BATCH = 3
         for (let i = 0; i < tickers.length; i += BATCH) {
           const batch = tickers.slice(i, i + BATCH)
           const results = await Promise.allSettled(batch.map(t => getNews(t)))
@@ -114,12 +124,9 @@ export default function NewsPage() {
               byTicker[t] = (res.value || []).slice(0, 8) // limit 8 per ticker
             }
           })
+          setHoldingNewsByTicker({ ...byTicker })  // progressive render
+          if (i + BATCH < tickers.length) await sleep(450)
         }
-        setHoldingNewsByTicker(byTicker)
-        // Auto-expand first 3 tickers
-        const auto: Record<string, boolean> = {}
-        tickers.slice(0, 3).forEach(t => { auto[t] = true })
-        setExpandedTickers(auto)
       }
     } catch (err) {
       toast.error("Failed to load news: " + String(err))
