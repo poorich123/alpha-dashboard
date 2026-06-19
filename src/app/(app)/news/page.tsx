@@ -53,16 +53,27 @@ export default function NewsPage() {
       const from = format(new Date(), "yyyy-MM-dd")
       const to = format(addDays(new Date(), 60), "yyyy-MM-dd")
 
-      const [marketNews, earningsData, econData] = await Promise.all([
+      // Independent sources — one failing must NOT take down the others.
+      // Finnhub's economic calendar is a premium endpoint (403 on free tier),
+      // so we fall back silently to the local US schedule below.
+      const [marketRes, earningsRes, econRes] = await Promise.allSettled([
         getMarketNews(),
         getEarningsCalendar(from, to),
         getEconomicCalendar(),
       ])
 
+      const marketNews = marketRes.status === "fulfilled" ? marketRes.value : []
+      const earningsData = earningsRes.status === "fulfilled" ? earningsRes.value : []
+      const econData = econRes.status === "fulfilled" ? econRes.value : []
+
       setNews(marketNews.slice(0, 50))
+      if (marketRes.status === "rejected") {
+        toast.error("ข่าวตลาดโหลดไม่ได้: " + String(marketRes.reason))
+      }
 
       // Merge Finnhub's intl events with US schedule (Finnhub free tier
-      // doesn't return major US events like PCE/CPI/NFP/FOMC).
+      // doesn't return major US events like PCE/CPI/NFP/FOMC, and the calendar
+      // endpoint itself is premium — econData is [] on free tier).
       const usEvents = getUSEconomicEvents(new Date(), addDays(new Date(), 60))
       setEconomic([...econData, ...usEvents])
 
