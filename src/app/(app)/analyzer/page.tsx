@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { analyzeStock, type AnalyzerResult } from "@/lib/stockAnalyzer"
 import { fetchFundamentals, computeFairValue, type FairValueResult, type FundamentalsRaw } from "@/lib/fairValue"
 import { computeBubbleScore } from "@/lib/bubbleScore"
+import { detectSupplyChainHealth, type SupplyChainSnapshot } from "@/lib/supplyChain"
+import { SupplyChainDeRiskBanner } from "@/components/analyzer/SupplyChainDeRiskBanner"
 import { AnalyzerHeader } from "@/components/analyzer/AnalyzerHeader"
 import { EntryStrategyCard } from "@/components/analyzer/EntryStrategyCard"
 import { FairValueCard } from "@/components/analyzer/FairValueCard"
@@ -44,7 +46,13 @@ function AnalyzerPageInner() {
   const [fundamentals, setFundamentals] = useState<FundamentalsRaw | null>(null)
   const [fvLoading, setFvLoading] = useState(false)
   const [fvError, setFvError] = useState<string | null>(null)
+  const [supplyChain, setSupplyChain] = useState<SupplyChainSnapshot | null>(null)
   const { positions } = usePortfolioStore()
+
+  // Supply-chain health is global (not per-stock) — fetch once, cached
+  useEffect(() => {
+    detectSupplyChainHealth().then(setSupplyChain).catch(() => {})
+  }, [])
 
   // Bubble score derives from technical result + (optional) valuation/fundamentals
   const bubbleScore = useMemo(
@@ -214,6 +222,14 @@ function AnalyzerPageInner() {
               )
               return held ? (held.strategy ?? inferStrategy(held.category)) : undefined
             })()}
+          />
+
+          {/* ── Supply-chain de-risk (AI/semi downstream only, when upstream weak) ── */}
+          <SupplyChainDeRiskBanner
+            ticker={result.ticker}
+            stop={result.swingSetup.stop}
+            price={result.snapshot.currentPrice}
+            snap={supplyChain}
           />
 
           {/* ── Fair Value / Margin of Safety (fundamentals, independent fetch) ── */}

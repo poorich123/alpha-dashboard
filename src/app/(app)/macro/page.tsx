@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { RefreshCw, AlertTriangle, Zap, ShieldAlert, Compass, TrendingUp, TrendingDown } from "lucide-react"
 import { detectMacroRisks, detectDalioRegime, type MacroSnapshot, type RiskFactor, type DalioRegime } from "@/lib/macroRisk"
+import { detectSupplyChainHealth, type SupplyChainSnapshot } from "@/lib/supplyChain"
+import { SupplyChainCard } from "@/components/macro/SupplyChainCard"
 import { HSRHeroBanner } from "@/components/hsr/HSRHeroBanner"
 import { PAGE_CHARACTERS } from "@/components/hsr/characters"
 import { InlineSpinner } from "@/components/ui/LoadingSpinner"
@@ -203,15 +205,17 @@ function IndicatorList({ title, items }: { title: string; items: DalioRegime["gr
 export default function MacroPage() {
   const [snapshot, setSnapshot] = useState<MacroSnapshot | null>(null)
   const [regime, setRegime] = useState<DalioRegime | null>(null)
+  const [supplyChain, setSupplyChain] = useState<SupplyChainSnapshot | null>(null)
   const [loading, setLoading] = useState(false)
   const character = PAGE_CHARACTERS.analytics  // Black Swan
 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [data, reg] = await Promise.all([detectMacroRisks(), detectDalioRegime()])
+      const [data, reg, sc] = await Promise.all([detectMacroRisks(), detectDalioRegime(), detectSupplyChainHealth()])
       setSnapshot(data)
       setRegime(reg)
+      setSupplyChain(sc)
     } finally {
       setLoading(false)
     }
@@ -271,6 +275,9 @@ export default function MacroPage() {
 
       {/* Dalio Regime Detector */}
       {regime && <RegimeCard regime={regime} />}
+
+      {/* Supply-Chain Bellwether → De-risk */}
+      <SupplyChainCard snap={supplyChain} />
 
       {/* Loading skeleton */}
       {loading && !snapshot && (
