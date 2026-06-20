@@ -205,15 +205,26 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
 //   SWING → short-term, trade Pivot Point S/R
 //   SPEC  → high-risk momentum, no fixed levels
 //
-function DeRiskBadge({ signal }: { signal: { level: DeRiskLevel; score: number; reasons: string[]; suggestedAction: string } }) {
+function DeRiskBadge({ signal }: {
+  signal: {
+    level: DeRiskLevel; driver: string; summary: string
+    technicalScore: number; thesisScore: number
+    technicalReasons: string[]; thesisReasons: string[]; suggestedAction: string
+  }
+}) {
   const cfg =
     signal.level === "CUT"     ? { label: "CUT",     color: "text-red-300 bg-red-500/20 border-red-500/50 critical-pulse" } :
     signal.level === "DE-RISK" ? { label: "DE-RISK", color: "text-orange-300 bg-orange-500/15 border-orange-500/40" } :
                                  { label: "WATCH",   color: "text-yellow-300 bg-yellow-500/10 border-yellow-500/30" }
-  const tip = `Risk ${signal.score}/100 — ${signal.reasons.join(" · ")}\n→ ${signal.suggestedAction}`
+  // Driver hint: thesis = real concern, technical = chart-only (likely rotation)
+  const driverTag = signal.driver === "thesis" ? "ไส้ใน" : signal.driver === "both" ? "ราคา+ไส้ใน" : signal.driver === "technical" ? "เทคนิคัล" : ""
+  const tip = `${signal.summary}\n` +
+    `Technical ${signal.technicalScore}/100${signal.technicalReasons.length ? ": " + signal.technicalReasons.join(" · ") : ""}\n` +
+    `Thesis ${signal.thesisScore}/100${signal.thesisReasons.length ? ": " + signal.thesisReasons.join(" · ") : ""}\n` +
+    `→ ${signal.suggestedAction}`
   return (
     <span title={tip} className={cn("text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border", cfg.color)}>
-      ⚠ {cfg.label}
+      ⚠ {cfg.label}{driverTag && <span className="opacity-70 font-normal"> · {driverTag}</span>}
     </span>
   )
 }
