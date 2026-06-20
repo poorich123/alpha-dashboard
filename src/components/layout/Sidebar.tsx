@@ -23,6 +23,7 @@ import {
   Sparkles,
   Activity,
   BookOpen,
+  Gauge,
 } from "lucide-react"
 import { getSupabaseBrowser, hasSupabaseConfigured } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
@@ -37,6 +38,7 @@ const navItems = [
   { href: "/macro", icon: Globe, label: "Macro Risk", highlight: true },
   { href: "/smartmoney", icon: Activity, label: "Smart Money", highlight: true },
   { href: "/portfolio", icon: Briefcase, label: "Portfolio" },
+  { href: "/risk", icon: Gauge, label: "Risk Budget" },
   { href: "/journal", icon: BookOpen, label: "Journal" },
   { href: "/charts", icon: LineChart, label: "Charts" },
   { href: "/rating", icon: Star, label: "Rating" },
