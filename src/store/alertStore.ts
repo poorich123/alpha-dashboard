@@ -1,5 +1,6 @@
 import { create } from "zustand"
 import type { TechnicalScanResult } from "@/lib/swingScanner"
+import type { PositionRiskSignal } from "@/lib/positionRisk"
 
 export type ImpactLevel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW"
 export type Sentiment = "BULLISH" | "BEARISH" | "NEUTRAL"
@@ -54,6 +55,7 @@ interface AlertStore {
   panelOpen: boolean
   soundEnabled: boolean
   watchlistScans: Record<string, TechnicalScanResult>  // ticker → scan result
+  positionRiskSignals: Record<string, PositionRiskSignal>  // ticker → de-risk signal
 
   addAlert: (alert: NewsAlert) => void
   markRead: (id: string) => void
@@ -65,6 +67,7 @@ interface AlertStore {
   setSoundEnabled: (v: boolean) => void
   loadFromStorage: () => void
   setWatchlistScans: (scans: Record<string, TechnicalScanResult>) => void
+  setPositionRiskSignals: (signals: Record<string, PositionRiskSignal>) => void
 }
 
 const STORAGE_KEY = "alpha_alerts"
@@ -79,6 +82,7 @@ export const useAlertStore = create<AlertStore>((set, get) => ({
   panelOpen: false,
   soundEnabled: true,
   watchlistScans: {},
+  positionRiskSignals: {},
 
   addAlert: (alert) => {
     const alerts = [alert, ...get().alerts].slice(0, MAX_ALERTS)
@@ -122,6 +126,7 @@ export const useAlertStore = create<AlertStore>((set, get) => ({
   setMonitoring: (isMonitoring) => set({ isMonitoring }),
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setWatchlistScans: (scans) => set(s => ({ watchlistScans: { ...s.watchlistScans, ...scans } })),
+  setPositionRiskSignals: (signals) => set({ positionRiskSignals: signals }),
   setSoundEnabled: (soundEnabled) => {
     set({ soundEnabled })
     if (typeof window !== "undefined") {

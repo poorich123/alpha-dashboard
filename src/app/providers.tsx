@@ -8,6 +8,8 @@ import { getUsdThbRate } from "@/lib/finnhub"
 import { isOnboarded, setOnboarded, savePositions, saveWatchlist, saveSettings } from "@/lib/portfolio"
 import { checkForAlerts, checkForMacroAlerts } from "@/lib/newsMonitor"
 import { runWatchlistScan, runSpeculativeScan } from "@/lib/swingScanner"
+import { scanPositionRisk } from "@/lib/positionRisk"
+import { detectSupplyChainHealth } from "@/lib/supplyChain"
 import { loadBackup, restoreToLocalStorage } from "@/lib/backup"
 import { hasSupabaseConfigured, getSupabaseBrowser } from "@/lib/supabase/client"
 import {
@@ -226,6 +228,19 @@ function StoreInitializer() {
           }
         } catch { /* ignore */ }
       }
+
+      if (cancelled) return
+
+      // ── 4. Position de-risk scan (thesis break + supply-chain) ─────────
+      try {
+        const supplyChain = await detectSupplyChainHealth()
+        const existing = useAlertStore.getState().alerts
+        const { signals, alerts: deRiskAlerts } = await scanPositionRisk(currentPositions, supplyChain, existing)
+        if (!cancelled) {
+          useAlertStore.getState().setPositionRiskSignals(signals)
+          for (const alert of deRiskAlerts) addAlert(alert)
+        }
+      } catch { /* ignore */ }
     }
 
     // Start monitoring

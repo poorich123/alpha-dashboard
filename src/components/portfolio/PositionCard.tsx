@@ -5,7 +5,10 @@ import { Edit2, Trash2, ChevronDown, ChevronUp, Target, Shield } from "lucide-re
 import { Button } from "@/components/ui/button"
 import { PercentBadge } from "@/components/ui/PriceChange"
 import { usePortfolioStore } from "@/store/portfolioStore"
+import { useAlertStore } from "@/store/alertStore"
 import type { Position } from "@/types"
+import type { DeRiskLevel } from "@/lib/positionRisk"
+import { cn } from "@/lib/utils"
 import { calculatePnL } from "@/lib/portfolio"
 import { differenceInDays, parseISO } from "date-fns"
 import toast from "react-hot-toast"
@@ -19,6 +22,7 @@ interface Props {
 export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props) {
   const { deletePosition } = usePortfolioStore()
   const [expanded, setExpanded] = useState(false)
+  const riskSignal = useAlertStore(s => s.positionRiskSignals[p.ticker.toUpperCase()])
 
   const { unrealizedPnL, unrealizedPnLPercent, totalValue } = calculatePnL(p)
   const weight = totalPortfolioValue > 0 ? (totalValue / totalPortfolioValue) * 100 : 0
@@ -66,6 +70,7 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-white font-bold">{p.ticker}</span>
                 <PercentBadge value={unrealizedPnLPercent} />
+                {riskSignal && riskSignal.level !== "OK" && <DeRiskBadge signal={riskSignal} />}
                 {/* Show strategy badge ONLY when user explicitly set it — keeps cards clean */}
                 {p.strategy && <StrategyBadge strategy={p.strategy} />}
               </div>
@@ -200,6 +205,19 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
 //   SWING → short-term, trade Pivot Point S/R
 //   SPEC  → high-risk momentum, no fixed levels
 //
+function DeRiskBadge({ signal }: { signal: { level: DeRiskLevel; score: number; reasons: string[]; suggestedAction: string } }) {
+  const cfg =
+    signal.level === "CUT"     ? { label: "CUT",     color: "text-red-300 bg-red-500/20 border-red-500/50 critical-pulse" } :
+    signal.level === "DE-RISK" ? { label: "DE-RISK", color: "text-orange-300 bg-orange-500/15 border-orange-500/40" } :
+                                 { label: "WATCH",   color: "text-yellow-300 bg-yellow-500/10 border-yellow-500/30" }
+  const tip = `Risk ${signal.score}/100 — ${signal.reasons.join(" · ")}\n→ ${signal.suggestedAction}`
+  return (
+    <span title={tip} className={cn("text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border", cfg.color)}>
+      ⚠ {cfg.label}
+    </span>
+  )
+}
+
 function StrategyBadge({ strategy }: { strategy: "dca" | "swing" | "spec" }) {
   const cfg = strategy === "dca"
     ? { label: "DCA",   color: "text-amber-300 bg-amber-500/15 border-amber-500/40",
