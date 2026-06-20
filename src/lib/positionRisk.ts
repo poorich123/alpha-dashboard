@@ -19,6 +19,7 @@ import { getYahooCandles } from "./yfinance"
 import { calculateEMA } from "./technical"
 import { isAISemiDownstream, type SupplyChainSnapshot } from "./supplyChain"
 import { fetchFundamentals, type FundamentalsRaw } from "./fairValue"
+import { getEarnings } from "./finnhub"
 import type { Position } from "@/types"
 import type { NewsAlert } from "@/store/alertStore"
 
@@ -35,6 +36,7 @@ export interface PositionRiskSignal {
   technicalReasons: string[]
   thesisReasons: string[]
   summary: string            // human one-liner (e.g. "เทคนิคัลอ่อน แต่พื้นฐานยังดี")
+  earningsInDays: number | null   // event risk — days to next earnings (null = unknown/none)
   suggestedAction: string
   suggestedStop: number | null
 }
@@ -62,9 +64,11 @@ export function analyzePositionRisk(args: {
   spyCloses: number[] | null
   supplyChain: SupplyChainSnapshot | null
   fundamentals: FundamentalsRaw | null
+  earningsInDays?: number | null
   userStop?: number
 }): PositionRiskSignal {
   const { ticker, currentPrice, closes, lows, spyCloses, supplyChain, fundamentals, userStop } = args
+  const earningsInDays = args.earningsInDays ?? null
   const technicalReasons: string[] = []
   const thesisReasons: string[] = []
   let technicalScore = 0
@@ -143,7 +147,7 @@ export function analyzePositionRisk(args: {
     : driver === "technical" ? "เทคนิคัลอ่อน แต่พื้นฐานยังดี — น่าจะ rotation/พักฐาน ไม่ใช่ thesis พัง"
     : "ปกติ"
 
-  const suggestedAction =
+  let suggestedAction =
     level === "CUT" ? "Cut หรือลดไม้ส่วนใหญ่ — ทั้งราคาและธุรกิจเสียพร้อมกัน"
     : level === "DE-RISK" && driver === "thesis" ? "ไส้ในเริ่มเสีย — ลดไม้ก่อนราคาตามมา (cut ก่อนตลาด)"
     : level === "DE-RISK" ? `ลดไม้บางส่วน + กระชับ stop ขึ้นมาที่ ~$${suggestedStop?.toFixed(2) ?? "-"}`
@@ -151,15 +155,22 @@ export function analyzePositionRisk(args: {
     : level === "WATCH" ? "จับตาใกล้ชิด — ถ้าสัญญาณเพิ่มให้ลดไม้"
     : "ถือได้ตามแผน"
 
+  // Earnings is binary event risk (orthogonal to trend/thesis) — flag it loudly.
+  if (earningsInDays != null && earningsInDays >= 0 && earningsInDays <= 5) {
+    suggestedAction = `📅 งบใน ${earningsInDays} วัน (event risk ±) — ไม่เพิ่มไม้ก่อนงบ · พิจารณาลดไม้/hedge` +
+      (level !== "OK" ? ` · ${suggestedAction}` : "")
+  }
+
   return {
     ticker, level, score, technicalScore, thesisScore, driver,
-    technicalReasons, thesisReasons, summary, suggestedAction, suggestedStop,
+    technicalReasons, thesisReasons, summary, earningsInDays, suggestedAction, suggestedStop,
   }
 }
 
 // ─── Alert generation (called from the monitoring loop) ───────────────────────
 
 const ALERT_SOURCE = "Position Risk Engine"
+const EARNINGS_SOURCE = "Earnings Reminder"
 const DEDUP_MS = 6 * 60 * 60 * 1000  // don't re-alert same ticker within 6h unless escalated
 
 /**
@@ -193,12 +204,39 @@ export async function scanPositionRisk(
       let fundamentals: FundamentalsRaw | null = null
       try { fundamentals = await fetchFundamentals(p.ticker) } catch { /* ignore */ }
 
+      // Days to next earnings (event risk)
+      let earningsInDays: number | null = null
+      try {
+        const todayStr = new Date().toISOString().slice(0, 10)
+        const next = (await getEarnings(p.ticker))
+          .filter(e => e.date >= todayStr)
+          .sort((a, b) => a.date.localeCompare(b.date))[0]
+        if (next) earningsInDays = Math.max(0, Math.ceil((new Date(next.date).getTime() - now) / 86400000))
+      } catch { /* ignore */ }
+
       const sig = analyzePositionRisk({
         ticker: p.ticker, currentPrice: price,
         closes: candle.c, lows: candle.l, spyCloses,
-        supplyChain, fundamentals, userStop: p.stopLoss,
+        supplyChain, fundamentals, earningsInDays, userStop: p.stopLoss,
       })
       signals[p.ticker.toUpperCase()] = sig
+
+      // Pre-earnings reminder alert (≤2 days), once per ticker/day
+      if (earningsInDays != null && earningsInDays <= 2) {
+        const dupEarn = existingAlerts.find(a =>
+          a.source === EARNINGS_SOURCE && a.tickers.includes(p.ticker) && now - a.timestamp < 18 * 60 * 60 * 1000)
+        if (!dupEarn) {
+          alerts.push({
+            id: `earn-${p.ticker}-${now}`, timestamp: now, tickers: [p.ticker],
+            headline: `📅 ${p.ticker} ประกาศงบใน ${earningsInDays} วัน — event risk ±`,
+            source: EARNINGS_SOURCE, url: `/analyzer?ticker=${encodeURIComponent(p.ticker)}`,
+            impact: "MEDIUM", sentiment: "NEUTRAL", type: "PORTFOLIO",
+            portfolioAssessment: "งบเป็น binary risk (อาจ ±10-20% ในคืนเดียว)",
+            immediateAction: "ไม่เพิ่มไม้ก่อนงบ · พิจารณาลดไม้/hedge ตามความเสี่ยงที่รับได้",
+            swingSetups: [], read: false,
+          })
+        }
+      }
 
       // Throttle (every other holding) to stay gentle on the APIs
       if (++i % 3 === 0) await new Promise(r => setTimeout(r, 300))

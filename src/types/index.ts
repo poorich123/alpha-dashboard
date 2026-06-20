@@ -108,12 +108,18 @@ export interface PortfolioSnapshot {
 export interface Trade {
   id: string
   ticker: string
-  action: "buy" | "sell"
+  action: "buy" | "sell" | "trim" | "add" | "note"
   shares: number
   price: number
   date: string
   notes: string
   realizedPnL?: number
+  // ── Journal fields (optional) ──
+  setup?: string          // which signal/setup this followed
+  rationale?: string      // why I took the action
+  review?: string         // post-trade lesson (filled later)
+  rating?: number         // 1-5 self-rating of execution
+  tags?: string[]
 }
 
 export interface Quote {

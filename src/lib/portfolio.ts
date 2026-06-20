@@ -155,6 +155,15 @@ export function addTrade(trade: Trade): void {
   save(KEYS.trades, trades)
 }
 
+export function updateTrade(id: string, patch: Partial<Trade>): void {
+  const trades = getTrades().map(t => (t.id === id ? { ...t, ...patch } : t))
+  save(KEYS.trades, trades)
+}
+
+export function deleteTrade(id: string): void {
+  save(KEYS.trades, getTrades().filter(t => t.id !== id))
+}
+
 export function isOnboarded(): boolean {
   return load<boolean>(KEYS.onboarded, false)
 }

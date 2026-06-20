@@ -71,6 +71,9 @@ export function PositionCard({ position: p, onEdit, totalPortfolioValue }: Props
                 <span className="text-white font-bold">{p.ticker}</span>
                 <PercentBadge value={unrealizedPnLPercent} />
                 {riskSignal && riskSignal.level !== "OK" && <DeRiskBadge signal={riskSignal} />}
+                {riskSignal?.earningsInDays != null && riskSignal.earningsInDays <= 7 && (
+                  <EarningsBadge days={riskSignal.earningsInDays} />
+                )}
                 {/* Show strategy badge ONLY when user explicitly set it — keeps cards clean */}
                 {p.strategy && <StrategyBadge strategy={p.strategy} />}
               </div>
@@ -225,6 +228,18 @@ function DeRiskBadge({ signal }: {
   return (
     <span title={tip} className={cn("text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border", cfg.color)}>
       ⚠ {cfg.label}{driverTag && <span className="opacity-70 font-normal"> · {driverTag}</span>}
+    </span>
+  )
+}
+
+function EarningsBadge({ days }: { days: number }) {
+  const color = days <= 2 ? "text-red-300 bg-red-500/15 border-red-500/40"
+    : days <= 5 ? "text-orange-300 bg-orange-500/10 border-orange-500/30"
+    : "text-gray-400 bg-gray-700/30 border-gray-700"
+  return (
+    <span title={`ประกาศงบในอีก ${days} วัน — event risk (อาจ ±10-20%) · ไม่เพิ่มไม้ก่อนงบ`}
+      className={cn("text-[9px] font-bold tracking-wider px-1.5 py-0.5 rounded border", color)}>
+      📅 งบ {days}d
     </span>
   )
 }
